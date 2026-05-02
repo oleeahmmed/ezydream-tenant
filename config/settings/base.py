@@ -19,22 +19,28 @@ SHARED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
     "apps.auth",
-    "apps.foundation",
+    "apps.warehouse",
+    "apps.inventory",
+    "apps.sales",
+    "apps.purchase",
+    "apps.production",
+    "apps.finance",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_bolt",
 ]
 
-# django-tenants: TENANT_APPS cannot be empty.
-# ``apps.foundation`` is also listed in SHARED_APPS so ``migrate_schemas --shared``
-# creates foundation tables on ``public`` — bare ``localhost`` / public admin URLs
-# stop raising "relation does not exist". Per-tenant ERP data still lives in each
-# tenant schema when you use that tenant's hostname.
+# django-tenants: TENANT_APPS cannot be empty. ERP apps live in each tenant schema.
 TENANT_APPS = [
     "django.contrib.contenttypes",
     "apps.auth",
-    "apps.foundation",
+    "apps.warehouse",
+    "apps.inventory",
+    "apps.sales",
+    "apps.purchase",
+    "apps.production",
+    "apps.finance",
 ]
 
 # Password-reset token validity (hours)

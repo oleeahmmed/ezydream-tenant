@@ -49,6 +49,7 @@ class ClientAdmin(TenantAdminMixin, ModelAdmin):
 class DomainAdmin(ModelAdmin):
     compressed_fields = True
     warn_unsaved_form = True
+    autocomplete_fields = ("tenant",)
 
     list_display = ("domain", "tenant", "is_primary")
     list_filter = ("is_primary",)
@@ -65,6 +66,7 @@ except NotRegistered:
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin, ModelAdmin):
     ordering = ("email",)
+    autocomplete_fields = ("groups",)
     list_display = (
         "email",
         "otp_enabled",
@@ -110,3 +112,4 @@ except NotRegistered:
 class GroupAdmin(DjangoGroupAdmin, ModelAdmin):
     compressed_fields = True
     warn_unsaved_form = True
+    search_fields = ("name",)

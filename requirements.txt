@@ -1,0 +1,9 @@
+# Mirrors pyproject.toml — use: python -m venv .venv && .venv/bin/pip install -r requirements.txt
+django>=5.0,<6
+django-bolt
+python-dotenv
+pillow
+argon2-cffi
+django-tenants
+django-unfold==0.65.0
+psycopg2-binary

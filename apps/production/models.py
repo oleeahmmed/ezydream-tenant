@@ -1,0 +1,171 @@
+"""
+SAP Business One Production: BOM (OITT/ITT1), production order (OWOR/WOR1).
+
+Issue/receipt documents use the same SAP tables as inventory — call
+``/api/inventory/oige``, ``/api/inventory/ige1``, ``/api/inventory/oign``,
+``/api/inventory/ign1`` with ``BaseType=202`` and ``BaseEntry`` = ``OWOR.DocEntry``.
+
+``Canceled`` = Y/N soft delete (same pattern as ``apps.sales`` / ``apps.purchase``).
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+
+from apps.core import b1_ui_labels as ui
+
+
+def _canceled_yn(value: str) -> None:
+    if value not in ("Y", "N"):
+        raise ValidationError({"Canceled": "Use Y or N (SAP-style soft delete)."})
+
+
+def _tree_type(value: str) -> None:
+    if value not in ("P", "S", "A", "T"):
+        raise ValidationError({"TreeType": "Use P (Production), S (Sales), A (Assembly), or T (Template)."})
+
+
+def _wor_status(value: str) -> None:
+    if value not in ("P", "R", "L"):
+        raise ValidationError({"Status": "Use P (Planned), R (Released), or L (Closed)."})
+
+
+class OITT(models.Model):
+    """OITT — Bill of Materials header (parent finished item)."""
+
+    Code = models.CharField(ui.PRODUCT_NO, max_length=50, primary_key=True)
+    TreeType = models.CharField(ui.BOM_CATEGORY, max_length=1, default="P", db_index=True)
+    Quantity = models.DecimalField(
+        ui.BASE_QUANTITY,
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("1"),
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="Base quantity (e.g. per 1 finished unit).",
+    )
+    Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
+
+    class Meta:
+        db_table = "OITT"
+        verbose_name = _("Bill of materials")
+        verbose_name_plural = _("Bills of materials")
+
+    def clean(self) -> None:
+        _tree_type(self.TreeType)
+        _canceled_yn(self.Canceled)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class ITT1(models.Model):
+    """ITT1 — BOM lines (components / raw materials)."""
+
+    pk = models.CompositePrimaryKey("header", "LineNum")
+    header = models.ForeignKey(
+        OITT,
+        verbose_name=ui.PARENT_DOCUMENT,
+        on_delete=models.CASCADE,
+        db_column="Father",
+        to_field="Code",
+        related_name="lines",
+    )
+    LineNum = models.IntegerField(ui.LINE_NO)
+    ItemCode = models.CharField(ui.ITEM_CODE, max_length=50, db_index=True, db_column="Code")
+    Quantity = models.DecimalField(ui.QUANTITY, max_digits=19, decimal_places=6)
+    WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="Warehouse")
+    Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
+
+    class Meta:
+        db_table = "ITT1"
+        verbose_name = _("BOM line")
+        verbose_name_plural = _("BOM lines")
+        indexes = [
+            models.Index(fields=["ItemCode"], name="itt1_item_ix"),
+        ]
+
+    def clean(self) -> None:
+        _canceled_yn(self.Canceled)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class OWOR(models.Model):
+    """OWOR — Production order header."""
+
+    DocEntry = models.BigAutoField(ui.INTERNAL_NO, primary_key=True)
+    DocNum = models.IntegerField(ui.DOCUMENT_NO, null=True, blank=True, db_index=True)
+    ItemCode = models.CharField(ui.ITEM_CODE, max_length=50, db_index=True)
+    Status = models.CharField(ui.PRODUCTION_STATUS, max_length=1, default="P", db_index=True)
+    PlannedQty = models.DecimalField(ui.PLANNED_QTY, max_digits=19, decimal_places=6)
+    CmpltQty = models.DecimalField(
+        ui.COMPLETED_QTY,
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    PostDate = models.DateField(ui.POSTING_DATE, db_index=True)
+    WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="Warehouse")
+    Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
+
+    class Meta:
+        db_table = "OWOR"
+        verbose_name = _("Production order")
+        verbose_name_plural = _("Production orders")
+
+    def clean(self) -> None:
+        _wor_status(self.Status)
+        _canceled_yn(self.Canceled)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class WOR1(models.Model):
+    """WOR1 — Production order component lines."""
+
+    pk = models.CompositePrimaryKey("header", "LineNum")
+    header = models.ForeignKey(
+        OWOR,
+        verbose_name=ui.PARENT_DOCUMENT,
+        on_delete=models.CASCADE,
+        db_column="DocEntry",
+        related_name="lines",
+    )
+    LineNum = models.IntegerField(ui.LINE_NO)
+    ItemCode = models.CharField(ui.ITEM_CODE, max_length=50, db_index=True)
+    PlannedQty = models.DecimalField(ui.PLANNED_QTY, max_digits=19, decimal_places=6)
+    IssuedQty = models.DecimalField(
+        ui.ISSUED_QTY,
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="wareHouse")
+    Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
+
+    class Meta:
+        db_table = "WOR1"
+        verbose_name = _("Production order line")
+        verbose_name_plural = _("Production order lines")
+        indexes = [
+            models.Index(fields=["ItemCode"], name="wor1_item_ix"),
+        ]
+
+    def clean(self) -> None:
+        _canceled_yn(self.Canceled)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)

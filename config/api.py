@@ -11,7 +11,12 @@ from django_bolt.middleware import DjangoMiddleware
 from django_tenants.middleware.main import TenantMainMiddleware
 
 from apps.auth.api import attach_auth_routes
-from apps.foundation.api import attach_foundation_routes
+from apps.finance.api.views import attach_finance_routes
+from apps.inventory.api import attach_inventory_routes
+from apps.production.api import attach_production_routes
+from apps.purchase.api import attach_purchase_routes
+from apps.sales.api import attach_sales_routes
+from apps.warehouse.api import attach_warehouse_routes
 
 api = BoltAPI(
     middleware=[
@@ -19,5 +24,10 @@ api = BoltAPI(
     ],
 )
 attach_auth_routes(api)
-attach_foundation_routes(api)
+attach_finance_routes(api)
+attach_warehouse_routes(api)
+attach_inventory_routes(api)
+attach_sales_routes(api)
+attach_purchase_routes(api)
+attach_production_routes(api)
 api.mount_django("/", get_asgi_application(), clear_root_path=True)

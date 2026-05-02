@@ -18,7 +18,20 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import RedirectView
 
+from apps.core import admin_search_views
+
 urlpatterns = [
     path("", RedirectView.as_view(url="/admin/", permanent=False)),
+    path("admin/erp-search/items", admin_search_views.erp_search_items, name="admin_erp_search_items"),
+    path(
+        "admin/erp-search/warehouses",
+        admin_search_views.erp_search_warehouses,
+        name="admin_erp_search_warehouses",
+    ),
+    path(
+        "admin/erp-search/gl-accounts",
+        admin_search_views.erp_search_gl_accounts,
+        name="admin_erp_search_gl_accounts",
+    ),
     path("admin/", admin.site.urls),
 ]

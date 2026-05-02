@@ -10,7 +10,7 @@ dependencies = [
     "pillow",
     "argon2-cffi",
     "django-tenants",
-    "django-unfold",
+    "django-unfold==0.65.0",
     "psycopg2-binary",
 ]
 

@@ -1,4 +1,4 @@
-"""django-unfold: theme, sidebar, dashboard hook (English UI)."""
+"""django-unfold (0.65.x): theme, sidebar, dashboard hook."""
 
 from django.conf import settings
 from django.templatetags.static import static
@@ -21,40 +21,47 @@ def _extra_unfold_css(request):
     return static("admin/unfold-extra.css")
 
 
+def _nav_item(title: str, icon: str, app: str, model: str):
+    return {
+        "title": title,
+        "icon": icon,
+        "link": reverse_lazy(f"admin:{app}_{model}_changelist"),
+    }
+
+
 UNFOLD = {
     "SITE_TITLE": "Ezydream ERP Admin",
     "SITE_HEADER": "Ezydream ERP",
     "SITE_SUBHEADER": "Multitenant control panel",
-    "SITE_SYMBOL": "dataset",
+    "SITE_SYMBOL": "speed",
     "SITE_URL": "/",
     "SHOW_HISTORY": True,
     "SHOW_VIEW_ON_SITE": True,
     "SHOW_BACK_BUTTON": True,
-    "SHOW_UI_WARNINGS": True,
-    "BORDER_RADIUS": "0.5rem",
+    "SHOW_LANGUAGES": False,
     "ENVIRONMENT": unfold_environment,
     "DASHBOARD_CALLBACK": "config.dashboard_callback.build_admin_dashboard",
     "COLORS": {
         "primary": {
-            "50": "oklch(98.4% .004 250)",
-            "100": "oklch(96% .009 251)",
-            "200": "oklch(92% .016 252)",
-            "300": "oklch(86% .027 253)",
-            "400": "oklch(72% .051 254)",
-            "500": "oklch(55% .055 253)",
-            "600": "oklch(45% .049 253)",
-            "700": "oklch(38% .041 253)",
-            "800": "oklch(30% .033 253)",
-            "900": "oklch(22% .028 253)",
-            "950": "oklch(16% .022 253)",
+            "50": "252 254 235",
+            "100": "247 252 213",
+            "200": "238 248 178",
+            "300": "226 242 142",
+            "400": "208 234 106",
+            "500": "196 216 46",
+            "600": "168 184 42",
+            "700": "140 154 35",
+            "800": "112 123 28",
+            "900": "84 92 21",
+            "950": "63 69 16",
         },
         "font": {
-            "subtle-light": "var(--color-base-500)",
-            "subtle-dark": "var(--color-base-400)",
-            "default-light": "var(--color-base-600)",
-            "default-dark": "var(--color-base-300)",
-            "important-light": "var(--color-base-950)",
-            "important-dark": "var(--color-base-50)",
+            "subtle-light": "115 115 115",
+            "default-light": "75 85 99",
+            "dark-light": "55 65 81",
+            "subtle-dark": "156 163 175",
+            "default-dark": "209 213 219",
+            "dark-dark": "243 244 246",
         },
     },
     "STYLES": [
@@ -109,9 +116,7 @@ UNFOLD = {
                     {
                         "title": "Users",
                         "icon": "person",
-                        "link": reverse_lazy(
-                            "admin:tenant_auth_user_changelist"
-                        ),
+                        "link": reverse_lazy("admin:tenant_auth_user_changelist"),
                     },
                     {
                         "title": "Groups",
@@ -121,136 +126,75 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Foundation (ERP master data)",
+                "title": "Warehouse",
                 "separator": True,
                 "collapsible": True,
                 "items": [
-                    {
-                        "title": "Currencies",
-                        "icon": "payments",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_currency_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Exchange rates",
-                        "icon": "currency_exchange",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_exchangerate_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Tax types",
-                        "icon": "receipt_long",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_taxtype_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Tax rates",
-                        "icon": "percent",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_taxrate_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Units of measure",
-                        "icon": "straighten",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_unitofmeasure_changelist"
-                        ),
-                    },
-                    {
-                        "title": "UoM conversions",
-                        "icon": "swap_horiz",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_uomconversion_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Categories",
-                        "icon": "category",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_category_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Products",
-                        "icon": "inventory_2",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_product_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Product variants",
-                        "icon": "style",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_productvariant_changelist"
-                        ),
-                    },
-                    {
-                        "title": "BOM headers",
-                        "icon": "difference",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_productbom_changelist"
-                        ),
-                    },
-                    {
-                        "title": "BOM lines",
-                        "icon": "account_tree",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_productbomline_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Warehouses",
-                        "icon": "warehouse",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_warehouse_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Warehouse stock",
-                        "icon": "inventory",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_warehousestock_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Customers",
-                        "icon": "storefront",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_customer_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Suppliers",
-                        "icon": "local_shipping",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_supplier_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Sales persons",
-                        "icon": "badge",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_salesperson_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Payment methods",
-                        "icon": "credit_card",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_paymentmethod_changelist"
-                        ),
-                    },
-                    {
-                        "title": "Payment terms",
-                        "icon": "event_repeat",
-                        "link": reverse_lazy(
-                            "admin:tenant_foundation_paymentterm_changelist"
-                        ),
-                    },
+                    _nav_item("Warehouses (OWHS)", "warehouse", "tenant_warehouse", "owhs"),
+                ],
+            },
+            {
+                "title": "Inventory",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("Item groups (OITB)", "category", "tenant_inventory", "oitb"),
+                    _nav_item("Items (OITM)", "inventory_2", "tenant_inventory", "oitm"),
+                    _nav_item("Units of measure (OUOM)", "straighten", "tenant_inventory", "ouom"),
+                    _nav_item("Transfer requests (OWTQ)", "swap_horiz", "tenant_inventory", "owtq"),
+                    _nav_item("Stock transfers (OWTR)", "local_shipping", "tenant_inventory", "owtr"),
+                    _nav_item("Goods receipts (OIGN)", "inbox", "tenant_inventory", "oign"),
+                    _nav_item("Goods issues (OIGE)", "outbox", "tenant_inventory", "oige"),
+                    _nav_item("Inventory postings (OINC)", "fact_check", "tenant_inventory", "oinc"),
+                    _nav_item("Stock ledger (OINM)", "table_chart", "tenant_inventory", "oinm"),
+                ],
+            },
+            {
+                "title": "Sales (A/R)",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("Quotations (OQUT)", "request_quote", "tenant_sales", "oqut"),
+                    _nav_item("Orders (ORDR)", "shopping_cart", "tenant_sales", "ordr"),
+                    _nav_item("Deliveries (ODLN)", "local_shipping", "tenant_sales", "odln"),
+                    _nav_item("Returns (ORDN)", "assignment_return", "tenant_sales", "ordn"),
+                    _nav_item("A/R invoices (OINV)", "receipt_long", "tenant_sales", "oinv"),
+                ],
+            },
+            {
+                "title": "Purchase (A/P)",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("Purchase requests (OPRQ)", "playlist_add", "tenant_purchase", "oprq"),
+                    _nav_item("Purchase orders (OPOR)", "shopping_bag", "tenant_purchase", "opor"),
+                    _nav_item("Goods receipt PO (OPDN)", "inventory", "tenant_purchase", "opdn"),
+                    _nav_item("Goods returns (ORPC)", "undo", "tenant_purchase", "orpc"),
+                    _nav_item("A/P invoices (OPCH)", "description", "tenant_purchase", "opch"),
+                ],
+            },
+            {
+                "title": "Production",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("BOM headers (OITT)", "account_tree", "tenant_production", "oitt"),
+                    _nav_item("Production orders (OWOR)", "precision_manufacturing", "tenant_production", "owor"),
+                ],
+            },
+            {
+                "title": "Finance",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("Chart of accounts (OACT)", "account_balance", "tenant_finance", "oact"),
+                    _nav_item("Profit centers (OPRC)", "hub", "tenant_finance", "oprc"),
+                    _nav_item("Journal entries (OJDT)", "edit_note", "tenant_finance", "ojdt"),
+                    _nav_item("Incoming payments (ORCT)", "payments", "tenant_finance", "orct"),
+                    _nav_item("Outgoing payments (OVPM)", "account_balance_wallet", "tenant_finance", "ovpm"),
+                    _nav_item("Tax codes (OSTC)", "percent", "tenant_finance", "ostc"),
+                    _nav_item("Financial periods (OFPR)", "calendar_month", "tenant_finance", "ofpr"),
+                    _nav_item("Budget setup (OBGT)", "savings", "tenant_finance", "obgt"),
                 ],
             },
         ],

@@ -140,37 +140,9 @@ python manage.py runserver
 
 সাধারণত **টেন্যান্ট হোস্ট** (যেমন `acme.localhost`) দিয়ে `/api/auth/register` চালালে কোয়েরি **সেই টেন্যান্টের PostgreSQL স্কিমা** তে যায়। ওই স্কিমায় `tenant_auth` অ্যাপের মাইগ্রেশন এখনো চালানো হয়নি বলে টেবিল নেই। উপরের **`migrate_schemas`** চালিয়ে ঠিক করুন; একটিমাত্র টেন্যান্টের জন্য: `python manage.py migrate_schemas --schema=স্কিমা_নাম`।
 
-### `ProgrammingError: relation "tenant_foundation_currency" does not exist` (Foundation অ্যাডমিন)
+### পুরনো `tenant_foundation` (অপসারিত `apps.foundation`)
 
-**কারণ:** ওই টেবিল এখনো **যে PostgreSQL স্কিমায়** রিকোয়েস্ট যাচ্ছে সেখানে মাইগ্রেশন চালানো হয়নি, অথবা আগে `apps.foundation` শুধু `TENANT_APPS` এ ছিল — তাই **`public`** স্কিমায় টেবিল ছিল না আর `http://localhost:8000/admin/` (পাবলিক) থেকে খুললে `ProgrammingError` হত।
-
-**বর্তমান সেটিংস:** `apps.foundation` **`SHARED_APPS` ও `TENANT_APPS` দুটোতেই** (``apps.auth`` এর মতো)। তাই **`python manage.py migrate_schemas --shared`** চালালে **`public`** এ `tenant_foundation_*` টেবিল তৈরি হবে — localhost অ্যাডমিন থেকেও চেঞ্জলিস্ট খুলবে। **কোম্পানি-ভিত্তিক আসল ERP ডাটা** টেন্যান্ট হোস্ট (যেমন `acme.localhost`) দিয়ে খুললে **সেই টেন্যান্টের স্কিমা**য় যাবে; সেখানে টেবিলের জন্য **`python manage.py migrate_schemas`** (বা `--schema=…`) চালানো দরকার।
-
-**সার:** দুটো কমান্ডই চালান — `migrate_schemas --shared` আর `migrate_schemas`।
-
-**ভেঙে যাওয়া স্টেট (পাবলিকে `0001`/`0002` রেকর্ড আছে কিন্তু টেবিল নেই, বা `0002_shorten_index_names` মাইগ্রেশন ফাইল সরানোর পর):** `psql` দিয়ে `public` স্কিমায় `DELETE FROM django_migrations WHERE app = 'tenant_foundation';` চালিয়ে `tenant_foundation` এর ট্র্যাকিং মুছে দিন, তারপর আবার `migrate_schemas --shared`। টেন্যান্ট স্কিমাগুলোতেও একই ধরনের অসামঞ্জস্য থাকলে সেই স্কিমায় একই `DELETE` (স্কিমা `SET` করে) করে `migrate_schemas`।
-
-### `DuplicateTable` / `relation "tenant_foundation_…" already exists` (উল্টোটা)
-
-**কারণ:** টেবিল আগে থেকেই আছে কিন্তু ওই স্কিমার `django_migrations` এ `tenant_foundation.0001_initial_inventory` (বা পরের মাইগ্রেশন) **রেকর্ড নেই** — সাধারণ `migrate_schemas --shared` আবার `CREATE TABLE` চালায়।
-
-**১) আগে চেষ্টা করো (সব ফাউন্ডেশন টেবিল + `0001` এর `AddField` কলামগুলো মিলে থাকলে):**
-
-```bash
-python manage.py migrate_schemas --shared --fake-initial
-python manage.py migrate_schemas --fake-initial
-```
-
-**২) যদি `--fake-initial` এখনও `DuplicateTable` দেয়** (আংশিক স্কিমা / পুরনো কলাম): `0001` এর স্টেট আর DB একদম মিলে ধরে নিলে শুধু রেকর্ড করো, তারপর বাকি মাইগ্রেট:
-
-```bash
-python manage.py migrate_schemas --shared tenant_foundation 0001_initial_inventory --fake
-python manage.py migrate_schemas --shared
-python manage.py migrate_schemas tenant_foundation 0001_initial_inventory --fake
-python manage.py migrate_schemas
-```
-
-**সতর্কতা:** `--fake` ভুল স্কিমায় চালালে Django মনে করবে মাইগ্রেশন হয়ে গেছে কিন্তু DB আসলে আলাদা — পরে `OperationalError` আসতে পারে। সন্দেহ থাকলে ডেভে DB ড্রপ করে **§১৫** থেকে আবার শুরু করা নিরাপদ।
+প্রজেক্ট থেকে **`apps.foundation`** সরানো হয়েছে। পুরনো ডাটাবেজে `tenant_foundation_*` টেবিল বা `django_migrations` এ `tenant_foundation` রেকর্ড থাকলে আর লাগবে না — `psql` দিয়ে প্রয়োজনমতো টেবিল ড্রপ ও `DELETE FROM django_migrations WHERE app = 'tenant_foundation';` (প্রতিটি স্কিমায়) করে পরিষ্কার করতে পারেন। নতুন ইনস্টলে এই ধাপ লাগে না।
 
 ### `InconsistentMigrationHistory: admin.0001_initial … tenant_auth.0001_initial_user`
 
