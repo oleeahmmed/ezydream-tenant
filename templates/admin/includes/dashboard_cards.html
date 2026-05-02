@@ -1,0 +1,24 @@
+<div class="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="rounded-default border border-base-200 bg-base-50 px-4 py-3 shadow-xs dark:border-base-800 dark:bg-base-950">
+        <p class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark">Tenants</p>
+        <p class="text-2xl font-semibold tracking-tight text-font-important-light dark:text-font-important-dark">{{ dash_tenant_count }}</p>
+        <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">Total registered clients (<code class="rounded bg-base-200/70 px-1 py-0.5 dark:bg-base-800">Client</code>)</p>
+    </div>
+    <div class="rounded-default border border-base-200 bg-base-50 px-4 py-3 shadow-xs dark:border-base-800 dark:bg-base-950">
+        <p class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark">Domains</p>
+        <p class="text-2xl font-semibold tracking-tight text-font-important-light dark:text-font-important-dark">{{ dash_domain_count }}</p>
+        <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">Hostnames routed to tenants</p>
+    </div>
+    <div class="rounded-default border border-base-200 bg-base-50 px-4 py-3 shadow-xs dark:border-base-800 dark:bg-base-950">
+        <p class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark">On trial</p>
+        <p class="text-2xl font-semibold tracking-tight text-font-important-light dark:text-font-important-dark">{{ dash_on_trial }}</p>
+        <p class="mt-2 text-xs text-font-subtle-light dark:text-font-subtle-dark">Clients flagged <code class="rounded bg-base-200/70 px-1 py-0.5 dark:bg-base-800">on_trial</code></p>
+    </div>
+    <div class="rounded-default border border-base-200 bg-base-50 px-4 py-3 shadow-xs dark:border-base-800 dark:bg-base-950">
+        <p class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark">Next steps</p>
+        <ul class="mt-1 space-y-1 text-xs text-font-default-light dark:text-font-default-dark">
+            <li>· Add a <strong>Domain</strong> per hostname (e.g. <code class="rounded bg-base-200/70 px-1 py-0.5 dark:bg-base-800">localhost</code> for testing)</li>
+            <li>· Use <strong>schema name</strong> as Postgres schema for that tenant</li>
+        </ul>
+    </div>
+</div>

@@ -1,0 +1,18 @@
+[project]
+name = "ezydream-erp-multitenant"
+version = "0.1.0"
+description = "Professional Django multitenant starter setup"
+requires-python = ">=3.11"
+dependencies = [
+    "django",
+    "django-bolt",
+    "python-dotenv",
+    "pillow",
+    "argon2-cffi",
+    "django-tenants",
+    "django-unfold",
+    "psycopg2-binary",
+]
+
+[tool.uv]
+dev-dependencies = []

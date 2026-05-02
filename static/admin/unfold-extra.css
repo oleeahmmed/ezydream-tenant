@@ -1,0 +1,29 @@
+/*
+  Ezydream: shadcn-adjacent admin polish — Inter + টানা টাইট সারফেস ও ফোকাস রিং।
+  Unfold এর নিজের টোকেনের ওপর নির্ভর করেই খুচরা টিউন।
+*/
+
+html[class] body {
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+        BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* খুচরা ডার্ক মোডে কার্ড কন্ট্রাস্ট (Unfold ডিফল্টের ওপর সামান্য টিউন) */
+.dark aside[data-sidebar] {
+    box-shadow: 0 1px 0 0 rgb(255 255 255 / 0.04);
+}
+
+/* ফোম ইনপুট — shadcn-স্টাইল সাবটেল ফোকাস রিং */
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark textarea:focus,
+.dark select:focus {
+    outline: 2px solid oklch(55% .055 253 / 0.45);
+    outline-offset: 0;
+}
+
+html:not(.dark) input:not([type="checkbox"]):not([type="radio"]):focus,
+html:not(.dark) textarea:focus,
+html:not(.dark) select:focus {
+    outline: 2px solid oklch(55% .055 253 / 0.35);
+    outline-offset: 0;
+}
