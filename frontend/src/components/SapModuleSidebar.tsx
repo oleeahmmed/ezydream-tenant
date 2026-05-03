@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useWorkspace } from "../workspace/WorkspaceContext";
 
 type Item = { icon: string; label: string; path?: string };
 type Group = { id: string; icon: string; title: string; items: Item[] };
@@ -19,9 +19,11 @@ const MENU: Group[] = [
     icon: "🛒",
     title: "Sales – A/R",
     items: [
-      { icon: "📄", label: "Sales Quotation" },
-      { icon: "📦", label: "Sales Order" },
-      { icon: "🧾", label: "A/R Invoice" },
+      { icon: "📄", label: "Sales Quotation (OQUT)", path: "/sales/quotation" },
+      { icon: "📦", label: "Sales Order (ORDR)", path: "/sales/sales-order" },
+      { icon: "🚚", label: "Delivery (ODLN)", path: "/sales/delivery" },
+      { icon: "↩️", label: "Return (ORDN)", path: "/sales/return" },
+      { icon: "🧾", label: "A/R Invoice (OINV)", path: "/sales/invoice" },
     ],
   },
   {
@@ -43,9 +45,9 @@ const MENU: Group[] = [
   },
 ];
 
-/** Left module tree — behaviour aligned with ``frontend/ui/sap-dash.html`` */
+/** Left module tree — opens workspace tabs for each module. */
 export function SapModuleSidebar() {
-  const nav = useNavigate();
+  const { openInventoryModule, openSalesModule, activeNavPath } = useWorkspace();
   const [openId, setOpenId] = useState<string | null>("inv");
   const [q, setQ] = useState("");
 
@@ -61,7 +63,14 @@ export function SapModuleSidebar() {
   return (
     <div className="left-panel">
       <div className="module-search">
+        <span className="module-search-icon" aria-hidden>
+          <svg viewBox="0 0 16 16" width="14" height="14" focusable="false">
+            <circle cx="6.5" cy="6.5" r="4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M9.2 9.2 L13.5 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+        </span>
         <input
+          className="module-search-input"
           placeholder="Search menu..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -93,14 +102,27 @@ export function SapModuleSidebar() {
                 {g.items.map((it) => (
                   <div
                     key={it.label}
-                    className="module-child"
+                    className={`module-child${it.path && activeNavPath === it.path ? " selected" : ""}`}
                     onClick={() => {
-                      if (it.path) nav(it.path);
+                      if (!it.path) return;
+                      const inv = it.path.match(/^\/inventory\/([^/]+)\/?$/)?.[1];
+                      if (inv) {
+                        openInventoryModule(inv, it.label, it.path);
+                        return;
+                      }
+                      const sal = it.path.match(/^\/sales\/([^/]+)\/?$/)?.[1];
+                      if (sal) openSalesModule(sal, it.label, it.path);
                     }}
                     onKeyDown={(e) => {
                       if ((e.key === "Enter" || e.key === " ") && it.path) {
                         e.preventDefault();
-                        nav(it.path!);
+                        const inv = it.path.match(/^\/inventory\/([^/]+)\/?$/)?.[1];
+                        if (inv) {
+                          openInventoryModule(inv, it.label, it.path);
+                          return;
+                        }
+                        const sal = it.path.match(/^\/sales\/([^/]+)\/?$/)?.[1];
+                        if (sal) openSalesModule(sal, it.label, it.path);
                       }
                     }}
                     role={it.path ? "button" : undefined}

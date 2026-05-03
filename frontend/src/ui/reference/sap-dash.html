@@ -1,0 +1,1715 @@
+
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>
+   SAP Business One 9.3
+  </title>
+  <style>
+   * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+        font-size: 12px;
+        background: #c8c8c8;
+        color: #000;
+        overflow: hidden;
+        height: 100vh;
+      }
+
+      /* ─── LOGIN ────────────────────────────────────────────── */
+      #login-screen {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: #c0c0c0;
+      }
+      .login-shadow {
+        box-shadow: 3px 3px 8px rgba(0,0,0,0.45), inset 0 0 0 1px #fff;
+      }
+      .login-window {
+        width: 460px;
+        border: 2px solid #5a8db5;
+        background: #f0f0f0;
+      }
+      .login-titlebar {
+        height: 30px;
+        background: linear-gradient(180deg, #1c6ea4 0%, #1254a0 40%, #0d3f7c 100%);
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 6px; user-select: none;
+      }
+      .login-titlebar-left {
+        display: flex; align-items: center; gap: 5px;
+      }
+      .login-titlebar-icon {
+        width: 16px; height: 16px;
+        background: linear-gradient(135deg, #f0a000 0%, #ffcc00 50%, #c87000 100%);
+        border: 1px solid #a06000; border-radius: 2px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 9px; font-weight: bold; color: #7a3000;
+      }
+      .login-titlebar-text {
+        color: #fff; font-size: 12px; font-weight: bold;
+      }
+      .login-titlebar-btns { display: flex; gap: 2px; }
+      .win-btn {
+        width: 18px; height: 16px; border: 1px solid #6a9fc8;
+        background: linear-gradient(180deg, #5a9fd4 0%, #3a7fbf 100%);
+        color: #fff; font-size: 9px; cursor: pointer; display: flex;
+        align-items: center; justify-content: center;
+      }
+      .win-btn:hover { background: linear-gradient(180deg, #7ab8e8 0%, #5a9fd4 100%); }
+
+      .login-body {
+        display: flex; border-top: 1px solid #a0a0a0;
+      }
+      .login-side-banner {
+        width: 140px; min-height: 220px; flex-shrink: 0;
+        background: linear-gradient(180deg, #1a5a9a 0%, #0d3060 60%, #061828 100%);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        padding: 12px 8px; gap: 8px;
+      }
+      .sap-logo-big {
+        width: 90px; height: 36px;
+        background: linear-gradient(135deg, #f0a000 0%, #ffcc00 45%, #d08000 100%);
+        border: 1px solid #b07000; border-radius: 3px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px; font-weight: 900; color: #5a2000; letter-spacing: 1px;
+      }
+      .login-side-text {
+        color: #a8c8e8; font-size: 10px; text-align: center; line-height: 1.4;
+      }
+      .login-side-text b { color: #d0e8ff; }
+
+      .login-form-area {
+        flex: 1; padding: 16px 18px; background: #ececec;
+        border-left: 1px solid #b0b0b0;
+      }
+      .login-form-title {
+        font-size: 13px; font-weight: bold; color: #1a3a6a;
+        margin-bottom: 14px; padding-bottom: 6px;
+        border-bottom: 1px solid #c0c0c0;
+      }
+      .form-row { margin-bottom: 9px; }
+      .form-row label {
+        display: block; font-size: 11px; color: #333;
+        margin-bottom: 2px;
+      }
+      .form-row input[type="text"],
+      .form-row input[type="password"] {
+        width: 100%; height: 22px;
+        border: 1px solid #7a9fc8; border-radius: 0;
+        background: #fff; padding: 0 5px;
+        font-size: 12px; color: #000;
+        outline: none;
+      }
+      .form-row input:focus { border-color: #1a6ab0; box-shadow: 0 0 3px rgba(26,106,176,0.4); }
+      .checkbox-row {
+        display: flex; align-items: center; gap: 5px;
+        margin-bottom: 12px;
+      }
+      .checkbox-row input { width: 13px; height: 13px; cursor: pointer; }
+      .checkbox-row label { font-size: 11px; color: #333; cursor: pointer; }
+      .form-buttons {
+        display: flex; gap: 5px; justify-content: flex-end;
+        padding-top: 4px; border-top: 1px solid #c0c0c0;
+        margin-top: 6px;
+      }
+      .btn-sap {
+        height: 24px; padding: 0 14px; font-size: 11px;
+        border: 1px solid #7a9ab8; cursor: pointer;
+        background: linear-gradient(180deg, #f5f5f5 0%, #dcdcdc 100%);
+        color: #000;
+      }
+      .btn-sap:hover { background: linear-gradient(180deg, #e8f0fa 0%, #c8d8f0 100%); }
+      .btn-sap.primary {
+        background: linear-gradient(180deg, #f0a000 0%, #d48000 100%);
+        border-color: #b06000; color: #3a1800; font-weight: bold;
+      }
+      .btn-sap.primary:hover { background: linear-gradient(180deg, #ffb800 0%, #e89000 100%); }
+
+      /* ─── MAIN WINDOW ───────────────────────────────────────── */
+      #main-screen {
+        display: none; flex-direction: column;
+        height: 100vh; width: 100vw;
+        background: #c0c0c0;
+      }
+      #main-screen.visible { display: flex; }
+
+      /* MENU BAR */
+      .menu-bar {
+        height: 22px;
+        background: linear-gradient(180deg, #fafafa 0%, #e8e8e8 100%);
+        border-bottom: 1px solid #a0a0a0;
+        display: flex; align-items: center; padding: 0 4px;
+        flex-shrink: 0; user-select: none;
+      }
+      .menu-item {
+        padding: 2px 10px; font-size: 12px; cursor: pointer;
+        color: #000; position: relative;
+      }
+      .menu-item:hover, .menu-item.active {
+        background: linear-gradient(180deg, #d0e4f8 0%, #b8d0f0 100%);
+        border: 1px solid #5a90c8;
+      }
+      /* Dropdown menus */
+      .menu-item { position: relative; }
+      .dropdown {
+        display: none; position: absolute; top: 100%; left: 0;
+        background: #f5f5f5; border: 1px solid #8abbe8;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+        min-width: 180px; z-index: 9999;
+      }
+      .menu-item:hover .dropdown { display: block; }
+      .dropdown-item {
+        padding: 4px 18px; font-size: 11px; cursor: pointer;
+        color: #000; white-space: nowrap;
+      }
+      .dropdown-item:hover { background: #1a6ab0; color: #fff; }
+      .dropdown-sep { height: 1px; background: #c0c0c0; margin: 2px 0; }
+
+      /* TOOLBAR */
+      .toolbar {
+        height: 36px; flex-shrink: 0;
+        background: linear-gradient(180deg, #ffffff 0%, #d8d8d8 100%);
+        border-bottom: 2px solid #8abbe8;
+        display: flex; align-items: center; padding: 0 4px; gap: 1px;
+      }
+      .tb-sep { width: 1px; height: 26px; background: #a8a8a8; margin: 0 3px; }
+      .tb-btn {
+        width: 30px; height: 28px; border: 1px solid transparent;
+        background: transparent; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 1px; border-radius: 2px;
+        font-size: 9px; color: #444;
+      }
+      .tb-btn:hover {
+        background: linear-gradient(180deg, #e8f4ff 0%, #c8dff5 100%);
+        border-color: #5a9fd4;
+      }
+      .tb-btn:active { background: linear-gradient(180deg, #c0d8f0 0%, #a8c8e8 100%); }
+      .tb-icon {
+        width: 18px; height: 18px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px; line-height: 1;
+      }
+      .tb-label { font-size: 8px; color: #555; line-height: 1; }
+
+      /* SAP top branding stripe */
+      .sap-brand-bar {
+        height: 32px; flex-shrink: 0;
+        background: linear-gradient(90deg, #1254a0 0%, #1c6ea4 30%, #082a60 100%);
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 8px;
+      }
+      .sap-brand-left { display: flex; align-items: center; gap: 8px; }
+      .sap-mini-logo {
+        width: 42px; height: 18px;
+        background: linear-gradient(135deg, #f0a000 0%, #ffcc00 50%, #d08000 100%);
+        border: 1px solid #b07000; border-radius: 2px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 900; color: #5a1000; letter-spacing: 0.5px;
+      }
+      .sap-brand-title { color: #d0e8ff; font-size: 12px; font-weight: bold; }
+      .sap-brand-right { display: flex; align-items: center; gap: 10px; }
+      .brand-info { color: #90b8d8; font-size: 10px; }
+      .brand-user-chip {
+        background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25);
+        color: #fff; font-size: 10px; padding: 1px 8px; border-radius: 2px;
+        display: flex; align-items: center; gap: 4px;
+      }
+
+      /* MAIN BODY */
+      .main-body {
+        flex: 1; display: flex; overflow: hidden;
+      }
+
+      /* LEFT MODULE MENU */
+      .left-panel {
+        width: 210px; flex-shrink: 0;
+        background: linear-gradient(180deg, #e8e8e8 0%, #d8d8d8 100%);
+        border-right: 2px solid #8abbe8;
+        display: flex; flex-direction: column;
+        overflow: hidden;
+      }
+      .module-search {
+        padding: 4px 5px; border-bottom: 1px solid #b0b0b0;
+        background: #f0f0f0;
+      }
+      .module-search input {
+        width: 100%; height: 20px; border: 1px solid #7a9fc8;
+        background: #fff; padding: 0 5px; font-size: 11px;
+        outline: none;
+      }
+      .module-search input:focus { border-color: #1a6ab0; }
+      .left-menu { flex: 1; overflow-y: auto; }
+      .left-menu::-webkit-scrollbar { width: 8px; }
+      .left-menu::-webkit-scrollbar-track { background: #d8d8d8; }
+      .left-menu::-webkit-scrollbar-thumb { background: #9ab0c8; border: 1px solid #7a90a8; }
+
+      .module-group { border-bottom: 1px solid #b8b8b8; }
+      .module-group-header {
+        height: 26px; padding: 0 6px; cursor: pointer;
+        display: flex; align-items: center; gap: 5px;
+        background: linear-gradient(180deg, #ccd8e8 0%, #b8c8dc 100%);
+        border-bottom: 1px solid #a0b0c0; user-select: none;
+        font-size: 11px; font-weight: bold; color: #1a3a6a;
+      }
+      .module-group-header:hover { background: linear-gradient(180deg, #d8e8f8 0%, #c0d4ec 100%); }
+      .module-group-header.active { background: linear-gradient(180deg, #1a6ab0 0%, #0d4a90 100%); color: #fff; }
+      .tree-arrow { font-size: 10px; color: #5a7a9a; transition: transform 0.15s; }
+      .active .tree-arrow { color: #fff; }
+      .tree-arrow.open { transform: rotate(90deg); }
+      .module-group-icon { font-size: 13px; }
+      .module-children { display: none; background: #f0f0f0; }
+      .module-children.open { display: block; }
+      .module-child {
+        padding: 4px 8px 4px 24px; font-size: 11px; cursor: pointer;
+        color: #1a3060; display: flex; align-items: center; gap: 5px;
+        border-bottom: 1px solid #e0e0e0;
+      }
+      .module-child:hover { background: #d0e4f8; }
+      .module-child.selected { background: #1a6ab0; color: #fff; }
+      .module-child-icon { font-size: 12px; }
+
+      /* CONTENT AREA */
+      .content-area {
+        flex: 1; overflow: hidden;
+        background: #c8c8c8; display: flex; flex-direction: column;
+      }
+      .content-tabs {
+        height: 24px; background: linear-gradient(180deg, #e0e0e0 0%, #c8c8c8 100%);
+        border-bottom: 1px solid #a0a0a0; display: flex; align-items: flex-end;
+        padding: 0 4px; flex-shrink: 0; gap: 2px;
+      }
+      .content-tab {
+        height: 22px; padding: 0 14px; font-size: 11px;
+        background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 100%);
+        border: 1px solid #a0a0a0; border-bottom: none;
+        cursor: pointer; color: #555; display: flex; align-items: center;
+      }
+      .content-tab.active {
+        background: #fff; color: #000; font-weight: bold;
+        border-color: #5a9fd4; border-bottom: 1px solid #fff;
+        position: relative; z-index: 1;
+      }
+      .content-tab .tab-close { margin-left: 6px; font-size: 10px; color: #888; }
+      .content-tab.active .tab-close { color: #444; }
+      .content-pane { flex: 1; overflow-y: auto; background: #fff; }
+      .content-pane::-webkit-scrollbar { width: 10px; }
+      .content-pane::-webkit-scrollbar-track { background: #d8d8d8; }
+      .content-pane::-webkit-scrollbar-thumb { background: #9ab0c8; border: 1px solid #7a90a8; }
+
+      /* DASHBOARD */
+      .dashboard-wrap { padding: 8px; }
+      .dash-welcome-bar {
+        height: 36px; background: linear-gradient(90deg, #1254a0 0%, #1c6ea4 70%, #2a7ab0 100%);
+        display: flex; align-items: center; padding: 0 12px; gap: 10px;
+        margin-bottom: 8px;
+      }
+      .dash-welcome-text { color: #fff; font-size: 13px; font-weight: bold; }
+      .dash-welcome-sub { color: #a8d0f0; font-size: 11px; }
+
+      .dash-kpi-row { display: flex; gap: 6px; margin-bottom: 8px; }
+      .kpi-card {
+        flex: 1; background: linear-gradient(180deg, #f8f8f8 0%, #ebebeb 100%);
+        border: 1px solid #b0c8e0; padding: 8px 10px;
+        display: flex; flex-direction: column; gap: 3px;
+      }
+      .kpi-label { font-size: 10px; color: #5a7a9a; font-weight: bold; text-transform: uppercase; }
+      .kpi-value { font-size: 20px; font-weight: bold; color: #1a3a6a; }
+      .kpi-change { font-size: 10px; }
+      .kpi-pos { color: #1a7a30; }
+      .kpi-neg { color: #c03020; }
+
+      .dash-row { display: flex; gap: 6px; margin-bottom: 8px; }
+      .dash-panel {
+        flex: 1; background: #f8f8f8; border: 1px solid #b0c8e0;
+      }
+      .dash-panel-header {
+        height: 26px; background: linear-gradient(180deg, #d8e8f8 0%, #bcd4f0 100%);
+        border-bottom: 1px solid #9ab8d8; display: flex; align-items: center;
+        padding: 0 8px; gap: 6px;
+      }
+      .dash-panel-title { font-size: 11px; font-weight: bold; color: #1a3a6a; }
+      .dash-panel-body { padding: 8px; }
+
+      .dash-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+      .dash-table th {
+        background: linear-gradient(180deg, #d4e4f4 0%, #b8ccec 100%);
+        border: 1px solid #9ab8d4; padding: 3px 6px;
+        text-align: left; font-weight: bold; color: #1a3060;
+      }
+      .dash-table td { border: 1px solid #d0d8e8; padding: 3px 6px; color: #222; }
+      .dash-table tr:nth-child(even) td { background: #eef4fc; }
+      .dash-table tr:hover td { background: #d0e4f8; }
+
+      .chart-bar-wrap { display: flex; align-items: flex-end; gap: 4px; height: 90px; padding: 4px 0; }
+      .chart-bar-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+      .chart-bar {
+        width: 100%; background: linear-gradient(180deg, #4a9fd0 0%, #1a6ab0 100%);
+        border: 1px solid #0d4a90; border-radius: 1px;
+      }
+      .chart-bar.highlight { background: linear-gradient(180deg, #f0b000 0%, #c88000 100%); border-color: #a06000; }
+      .chart-bar-label { font-size: 9px; color: #555; }
+
+      .activity-item {
+        display: flex; gap: 8px; padding: 4px 0;
+        border-bottom: 1px solid #e8e8e8; font-size: 11px; align-items: flex-start;
+      }
+      .activity-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 2px; flex-shrink: 0; }
+      .dot-blue { background: #1a6ab0; }
+      .dot-green { background: #1a9a40; }
+      .dot-orange { background: #e08000; }
+      .dot-red { background: #c03020; }
+      .activity-time { color: #888; font-size: 10px; min-width: 70px; }
+      .activity-text { color: #333; }
+
+      .shortcut-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+      .shortcut-btn {
+        background: linear-gradient(180deg, #f5f5f5 0%, #e0e0e0 100%);
+        border: 1px solid #a8c0d8; padding: 6px 8px;
+        cursor: pointer; font-size: 11px; color: #1a3a6a;
+        display: flex; align-items: center; gap: 5px;
+        text-align: left;
+      }
+      .shortcut-btn:hover { background: linear-gradient(180deg, #d8ecff 0%, #b8d4f8 100%); }
+      .shortcut-icon { font-size: 14px; }
+
+      /* STATUS BAR */
+      .status-bar {
+        height: 22px; flex-shrink: 0;
+        background: linear-gradient(180deg, #d8d8d8 0%, #c0c0c0 100%);
+        border-top: 2px solid #8abbe8;
+        display: flex; align-items: center;
+        font-size: 10px; color: #333;
+      }
+      .status-seg {
+        padding: 0 10px; border-right: 1px solid #a8a8a8;
+        height: 100%; display: flex; align-items: center; gap: 4px;
+      }
+      .status-seg:last-child { border-right: none; margin-left: auto; }
+      .status-led { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #5a7a5a; }
+      .led-green { background: radial-gradient(circle at 35% 35%, #80ff80, #20a820); }
+      .led-yellow { background: radial-gradient(circle at 35% 35%, #ffff80, #c8a820); }
+
+      /* SCROLLBAR for left menu */
+      .left-panel::-webkit-scrollbar { width: 8px; }
+
+      /* FORM CONTENT PANELS */
+      .form-info-banner {
+        background: linear-gradient(90deg, #e8f0fa 0%, #d8e8f8 100%);
+        border: 1px solid #9ab8d8; padding: 4px 10px;
+        font-size: 11px; color: #1a3a6a; margin-bottom: 6px;
+        display: flex; align-items: center; gap: 6px;
+      }
+  </style>
+  <script src="/load.js">
+  </script>
+  <script src="/static/anima.min.js" type="module">
+  </script>
+ </head>
+ <body>
+  <!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
+  <div id="login-screen">
+   <div class="login-window login-shadow">
+    <!-- Title bar -->
+    <div class="login-titlebar">
+     <div class="login-titlebar-left">
+      <div class="login-titlebar-icon">
+       S
+      </div>
+      <span class="login-titlebar-text">
+       SAP Business One - Log On
+      </span>
+     </div>
+     <div class="login-titlebar-btns">
+      <button class="win-btn" title="Minimize">
+       ─
+      </button>
+      <button class="win-btn" onclick="window.close()" title="Close">
+       ✕
+      </button>
+     </div>
+    </div>
+    <!-- Body -->
+    <div class="login-body">
+     <!-- Left banner -->
+     <div class="login-side-banner">
+      <div class="sap-logo-big">
+       SAP
+      </div>
+      <div class="login-side-text">
+       <b>
+        Business One
+       </b>
+       <br/>
+       version 9.3
+      </div>
+      <div class="login-side-text" style="margin-top:12px; font-size:9px;">
+       Powered by SAP HANA
+       <br/>
+       © 2018 SAP SE
+      </div>
+     </div>
+     <!-- Form -->
+     <div class="login-form-area">
+      <div class="login-form-title">
+       Please enter your login information
+      </div>
+      <form id="login-form">
+       <div class="form-row">
+        <label for="user-id">
+         User ID:
+        </label>
+        <input autocomplete="off" autofocus="" id="user-id" name="user-id" type="text" value="manager"/>
+       </div>
+       <div class="form-row">
+        <label for="password">
+         Password:
+        </label>
+        <input id="password" name="password" type="password" value=""/>
+       </div>
+       <div class="checkbox-row" style="margin-top:8px;">
+        <input id="win-account" name="win-account" type="checkbox"/>
+        <label for="win-account">
+         Logon with Windows Account
+        </label>
+       </div>
+       <div class="form-buttons">
+        <button class="btn-sap" id="btn-cancel" type="button">
+         Cancel
+        </button>
+        <button class="btn-sap" id="btn-change-pwd" type="button">
+         Change Password
+        </button>
+        <button class="btn-sap primary" type="submit">
+         OK
+        </button>
+       </div>
+      </form>
+     </div>
+    </div>
+   </div>
+  </div>
+  <!-- ═══════════════ MAIN SCREEN ═══════════════ -->
+  <div id="main-screen">
+   <!-- SAP Brand / Top Bar -->
+   <div class="sap-brand-bar">
+    <div class="sap-brand-left">
+     <div class="sap-mini-logo">
+      SAP
+     </div>
+     <span class="sap-brand-title">
+      SAP Business One
+     </span>
+     <span class="brand-info">
+      | SBODemoUS | Version 9.30.160
+     </span>
+    </div>
+    <div class="sap-brand-right">
+     <span class="brand-info" id="bar-datetime">
+      --
+     </span>
+     <div class="brand-user-chip">
+      <span>
+       👤
+      </span>
+      <span id="bar-user">
+       manager
+      </span>
+     </div>
+     <span class="brand-info" id="btn-logout" style="cursor:pointer;" title="Log Off">
+      🔴 Log Off
+     </span>
+    </div>
+   </div>
+   <!-- Menu Bar -->
+   <div class="menu-bar">
+    <div class="menu-item">
+     File
+     <div class="dropdown">
+      <div class="dropdown-item">
+       New
+      </div>
+      <div class="dropdown-item">
+       Open
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Print
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item" id="menu-logout">
+       Log Off
+      </div>
+      <div class="dropdown-item">
+       Exit
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Edit
+     <div class="dropdown">
+      <div class="dropdown-item">
+       Find
+      </div>
+      <div class="dropdown-item">
+       First Record
+      </div>
+      <div class="dropdown-item">
+       Previous Record
+      </div>
+      <div class="dropdown-item">
+       Next Record
+      </div>
+      <div class="dropdown-item">
+       Last Record
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Add
+      </div>
+      <div class="dropdown-item">
+       Update
+      </div>
+      <div class="dropdown-item">
+       Delete
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     View
+     <div class="dropdown">
+      <div class="dropdown-item">
+       User-Defined Fields
+      </div>
+      <div class="dropdown-item">
+       System Info
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Refresh
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Data
+     <div class="dropdown">
+      <div class="dropdown-item">
+       Import from Excel
+      </div>
+      <div class="dropdown-item">
+       Export to Excel
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Data Import/Export Wizard
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Administration
+     <div class="dropdown">
+      <div class="dropdown-item">
+       System Initialization
+      </div>
+      <div class="dropdown-item">
+       Define New Company
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Users
+      </div>
+      <div class="dropdown-item">
+       Authorizations
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Tools
+     <div class="dropdown">
+      <div class="dropdown-item">
+       Microsoft Office Integration
+      </div>
+      <div class="dropdown-item">
+       User-Defined Fields - Management
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       Customization Tools
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Window
+     <div class="dropdown">
+      <div class="dropdown-item">
+       Main Menu
+      </div>
+      <div class="dropdown-item">
+       Cascade
+      </div>
+      <div class="dropdown-item">
+       Tile
+      </div>
+     </div>
+    </div>
+    <div class="menu-item">
+     Help
+     <div class="dropdown">
+      <div class="dropdown-item">
+       SAP Business One Help
+      </div>
+      <div class="dropdown-item">
+       Support Desk
+      </div>
+      <div class="dropdown-sep">
+      </div>
+      <div class="dropdown-item">
+       What's New
+      </div>
+      <div class="dropdown-item">
+       About SAP Business One
+      </div>
+     </div>
+    </div>
+   </div>
+   <!-- Toolbar -->
+   <div class="toolbar">
+    <!-- Nav cluster -->
+    <button class="tb-btn" title="First Record">
+     <div class="tb-icon">
+      ⏮
+     </div>
+     <div class="tb-label">
+      First
+     </div>
+    </button>
+    <button class="tb-btn" title="Previous Record">
+     <div class="tb-icon">
+      ◀
+     </div>
+     <div class="tb-label">
+      Prev
+     </div>
+    </button>
+    <button class="tb-btn" title="Next Record">
+     <div class="tb-icon">
+      ▶
+     </div>
+     <div class="tb-label">
+      Next
+     </div>
+    </button>
+    <button class="tb-btn" title="Last Record">
+     <div class="tb-icon">
+      ⏭
+     </div>
+     <div class="tb-label">
+      Last
+     </div>
+    </button>
+    <div class="tb-sep">
+    </div>
+    <!-- CRUD cluster -->
+    <button class="tb-btn" title="Add">
+     <div class="tb-icon">
+      ➕
+     </div>
+     <div class="tb-label">
+      Add
+     </div>
+    </button>
+    <button class="tb-btn" title="Find">
+     <div class="tb-icon">
+      🔍
+     </div>
+     <div class="tb-label">
+      Find
+     </div>
+    </button>
+    <button class="tb-btn" title="Delete">
+     <div class="tb-icon">
+      🗑
+     </div>
+     <div class="tb-label">
+      Remove
+     </div>
+    </button>
+    <div class="tb-sep">
+    </div>
+    <!-- Doc cluster -->
+    <button class="tb-btn" title="Print">
+     <div class="tb-icon">
+      🖨
+     </div>
+     <div class="tb-label">
+      Print
+     </div>
+    </button>
+    <button class="tb-btn" title="Print Preview">
+     <div class="tb-icon">
+      🗒
+     </div>
+     <div class="tb-label">
+      Preview
+     </div>
+    </button>
+    <button class="tb-btn" title="Email">
+     <div class="tb-icon">
+      ✉
+     </div>
+     <div class="tb-label">
+      Email
+     </div>
+    </button>
+    <button class="tb-btn" title="Attach Files">
+     <div class="tb-icon">
+      📎
+     </div>
+     <div class="tb-label">
+      Attach
+     </div>
+    </button>
+    <div class="tb-sep">
+    </div>
+    <!-- Util cluster -->
+    <button class="tb-btn" title="Export to Excel">
+     <div class="tb-icon">
+      📊
+     </div>
+     <div class="tb-label">
+      Export
+     </div>
+    </button>
+    <button class="tb-btn" title="Copy To">
+     <div class="tb-icon">
+      📋
+     </div>
+     <div class="tb-label">
+      Copy To
+     </div>
+    </button>
+    <button class="tb-btn" title="Journal Entry">
+     <div class="tb-icon">
+      📓
+     </div>
+     <div class="tb-label">
+      Journal
+     </div>
+    </button>
+    <div class="tb-sep">
+    </div>
+    <!-- Workflow cluster -->
+    <button class="tb-btn" title="Approval">
+     <div class="tb-icon">
+      ✅
+     </div>
+     <div class="tb-label">
+      Approve
+     </div>
+    </button>
+    <button class="tb-btn" title="Cancel Document">
+     <div class="tb-icon">
+      ❌
+     </div>
+     <div class="tb-label">
+      Cancel
+     </div>
+    </button>
+    <button class="tb-btn" title="Restore">
+     <div class="tb-icon">
+      ↩
+     </div>
+     <div class="tb-label">
+      Restore
+     </div>
+    </button>
+    <div class="tb-sep">
+    </div>
+    <!-- Help / Alerts -->
+    <button class="tb-btn" title="Alerts">
+     <div class="tb-icon">
+      🔔
+     </div>
+     <div class="tb-label">
+      Alerts
+     </div>
+    </button>
+    <button class="tb-btn" title="Messages">
+     <div class="tb-icon">
+      💬
+     </div>
+     <div class="tb-label">
+      MSG
+     </div>
+    </button>
+    <button class="tb-btn" title="SAP Notes">
+     <div class="tb-icon">
+      📌
+     </div>
+     <div class="tb-label">
+      Notes
+     </div>
+    </button>
+    <button class="tb-btn" title="Help">
+     <div class="tb-icon">
+      ❓
+     </div>
+     <div class="tb-label">
+      Help
+     </div>
+    </button>
+   </div>
+   <!-- Main body: left + content -->
+   <div class="main-body">
+    <!-- LEFT PANEL -->
+    <div class="left-panel">
+     <div class="module-search">
+      <input id="menu-search" placeholder="Search menu..." type="text"/>
+     </div>
+     <div class="left-menu" id="left-menu">
+      <!-- Administration -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         ⚙
+        </span>
+        <span>
+         Administration
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('system-init','System Initialization')">
+         <span class="module-child-icon">
+          🔧
+         </span>
+         System Initialization
+        </div>
+        <div class="module-child" onclick="openTab('users','Users')">
+         <span class="module-child-icon">
+          👥
+         </span>
+         Users
+        </div>
+        <div class="module-child" onclick="openTab('auth','Authorizations')">
+         <span class="module-child-icon">
+          🔒
+         </span>
+         Authorizations
+        </div>
+        <div class="module-child" onclick="openTab('alerts','Alert Management')">
+         <span class="module-child-icon">
+          🔔
+         </span>
+         Alert Management
+        </div>
+       </div>
+      </div>
+      <!-- Financials -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         💰
+        </span>
+        <span>
+         Financials
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('coa','Chart of Accounts')">
+         <span class="module-child-icon">
+          📊
+         </span>
+         Chart of Accounts
+        </div>
+        <div class="module-child" onclick="openTab('je','Journal Entry')">
+         <span class="module-child-icon">
+          📓
+         </span>
+         Journal Entry
+        </div>
+        <div class="module-child" onclick="openTab('je-report','Journal Entry Report')">
+         <span class="module-child-icon">
+          📋
+         </span>
+         Journal Entry Report
+        </div>
+        <div class="module-child" onclick="openTab('budget','Budget')">
+         <span class="module-child-icon">
+          📈
+         </span>
+         Budget
+        </div>
+        <div class="module-child" onclick="openTab('cost-acc','Cost Accounting')">
+         <span class="module-child-icon">
+          📉
+         </span>
+         Cost Accounting
+        </div>
+       </div>
+      </div>
+      <!-- Sales A/R -->
+      <div class="module-group">
+       <div class="module-group-header active" onclick="toggleGroup(this)">
+        <span class="tree-arrow open">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🛒
+        </span>
+        <span>
+         Sales – A/R
+        </span>
+       </div>
+       <div class="module-children open">
+        <div class="module-child selected" onclick="openTab('quotation','Sales Quotation')">
+         <span class="module-child-icon">
+          📄
+         </span>
+         Sales Quotation
+        </div>
+        <div class="module-child" onclick="openTab('order','Sales Order')">
+         <span class="module-child-icon">
+          📦
+         </span>
+         Sales Order
+        </div>
+        <div class="module-child" onclick="openTab('delivery','Delivery')">
+         <span class="module-child-icon">
+          🚚
+         </span>
+         Delivery
+        </div>
+        <div class="module-child" onclick="openTab('ar-inv','A/R Invoice')">
+         <span class="module-child-icon">
+          🧾
+         </span>
+         A/R Invoice
+        </div>
+        <div class="module-child" onclick="openTab('ar-credit','A/R Credit Memo')">
+         <span class="module-child-icon">
+          ↩
+         </span>
+         A/R Credit Memo
+        </div>
+        <div class="module-child" onclick="openTab('customers','Customers')">
+         <span class="module-child-icon">
+          👤
+         </span>
+         Customers
+        </div>
+       </div>
+      </div>
+      <!-- Purchasing A/P -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🏪
+        </span>
+        <span>
+         Purchasing – A/P
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('po','Purchase Order')">
+         <span class="module-child-icon">
+          📋
+         </span>
+         Purchase Order
+        </div>
+        <div class="module-child" onclick="openTab('grpo','Goods Receipt PO')">
+         <span class="module-child-icon">
+          📥
+         </span>
+         Goods Receipt PO
+        </div>
+        <div class="module-child" onclick="openTab('ap-inv','A/P Invoice')">
+         <span class="module-child-icon">
+          🧾
+         </span>
+         A/P Invoice
+        </div>
+        <div class="module-child" onclick="openTab('ap-credit','A/P Credit Memo')">
+         <span class="module-child-icon">
+          ↩
+         </span>
+         A/P Credit Memo
+        </div>
+        <div class="module-child" onclick="openTab('vendors','Vendors')">
+         <span class="module-child-icon">
+          🏢
+         </span>
+         Vendors
+        </div>
+       </div>
+      </div>
+      <!-- Business Partners -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🤝
+        </span>
+        <span>
+         Business Partners
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('bpmaster','BP Master Data')">
+         <span class="module-child-icon">
+          📇
+         </span>
+         BP Master Data
+        </div>
+        <div class="module-child" onclick="openTab('activities','Activity')">
+         <span class="module-child-icon">
+          📅
+         </span>
+         Activities
+        </div>
+        <div class="module-child" onclick="openTab('campaign','Campaign')">
+         <span class="module-child-icon">
+          📢
+         </span>
+         Campaign
+        </div>
+       </div>
+      </div>
+      <!-- Banking -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🏦
+        </span>
+        <span>
+         Banking
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('incoming','Incoming Payments')">
+         <span class="module-child-icon">
+          💵
+         </span>
+         Incoming Payments
+        </div>
+        <div class="module-child" onclick="openTab('outgoing','Outgoing Payments')">
+         <span class="module-child-icon">
+          💸
+         </span>
+         Outgoing Payments
+        </div>
+        <div class="module-child" onclick="openTab('bank-recon','Bank Statement Processing')">
+         <span class="module-child-icon">
+          🏛
+         </span>
+         Bank Statement
+        </div>
+       </div>
+      </div>
+      <!-- Inventory -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         📦
+        </span>
+        <span>
+         Inventory
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('item-master','Item Master Data')">
+         <span class="module-child-icon">
+          🔖
+         </span>
+         Item Master Data
+        </div>
+        <div class="module-child" onclick="openTab('goods-receipt','Goods Receipt')">
+         <span class="module-child-icon">
+          📥
+         </span>
+         Goods Receipt
+        </div>
+        <div class="module-child" onclick="openTab('goods-issue','Goods Issue')">
+         <span class="module-child-icon">
+          📤
+         </span>
+         Goods Issue
+        </div>
+        <div class="module-child" onclick="openTab('stock-count','Stock Counting')">
+         <span class="module-child-icon">
+          🔢
+         </span>
+         Stock Counting
+        </div>
+        <div class="module-child" onclick="openTab('warehouses','Warehouses')">
+         <span class="module-child-icon">
+          🏭
+         </span>
+         Warehouses
+        </div>
+       </div>
+      </div>
+      <!-- MRP -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🏗
+        </span>
+        <span>
+         MRP
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('mrp-wiz','MRP Wizard')">
+         <span class="module-child-icon">
+          🧙
+         </span>
+         MRP Wizard
+        </div>
+        <div class="module-child" onclick="openTab('order-rec','Order Recommendation')">
+         <span class="module-child-icon">
+          📋
+         </span>
+         Order Recommendation
+        </div>
+       </div>
+      </div>
+      <!-- Production -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🔩
+        </span>
+        <span>
+         Production
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('bom','Bill of Materials')">
+         <span class="module-child-icon">
+          📑
+         </span>
+         Bill of Materials
+        </div>
+        <div class="module-child" onclick="openTab('wo','Production Order')">
+         <span class="module-child-icon">
+          🏭
+         </span>
+         Production Order
+        </div>
+       </div>
+      </div>
+      <!-- Service -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         🛠
+        </span>
+        <span>
+         Service
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('service-call','Service Call')">
+         <span class="module-child-icon">
+          📞
+         </span>
+         Service Call
+        </div>
+        <div class="module-child" onclick="openTab('contracts','Service Contracts')">
+         <span class="module-child-icon">
+          📜
+         </span>
+         Service Contracts
+        </div>
+        <div class="module-child" onclick="openTab('equipment','Equipment Card')">
+         <span class="module-child-icon">
+          ⚙
+         </span>
+         Equipment Card
+        </div>
+       </div>
+      </div>
+      <!-- Human Resources -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         👔
+        </span>
+        <span>
+         Human Resources
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('employees','Employee Master Data')">
+         <span class="module-child-icon">
+          👤
+         </span>
+         Employee Master Data
+        </div>
+        <div class="module-child" onclick="openTab('attendance','Attendance')">
+         <span class="module-child-icon">
+          📆
+         </span>
+         Attendance
+        </div>
+       </div>
+      </div>
+      <!-- Reports -->
+      <div class="module-group">
+       <div class="module-group-header" onclick="toggleGroup(this)">
+        <span class="tree-arrow">
+         ▶
+        </span>
+        <span class="module-group-icon">
+         📊
+        </span>
+        <span>
+         Reports
+        </span>
+       </div>
+       <div class="module-children">
+        <div class="module-child" onclick="openTab('financial-reports','Financial Reports')">
+         <span class="module-child-icon">
+          📈
+         </span>
+         Financial Reports
+        </div>
+        <div class="module-child" onclick="openTab('sales-reports','Sales Reports')">
+         <span class="module-child-icon">
+          📉
+         </span>
+         Sales Reports
+        </div>
+        <div class="module-child" onclick="openTab('inventory-reports','Inventory Reports')">
+         <span class="module-child-icon">
+          📦
+         </span>
+         Inventory Reports
+        </div>
+        <div class="module-child" onclick="openTab('purchasing-reports','Purchasing Reports')">
+         <span class="module-child-icon">
+          🛒
+         </span>
+         Purchasing Reports
+        </div>
+       </div>
+      </div>
+     </div>
+    </div>
+    <!-- CONTENT AREA -->
+    <div class="content-area">
+     <div class="content-tabs" id="content-tabs">
+      <div class="content-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">
+       🏠 Home Dashboard
+       <span class="tab-close">
+        ✕
+       </span>
+      </div>
+     </div>
+     <div class="content-pane" id="content-pane">
+      <!-- Dashboard injected here -->
+     </div>
+    </div>
+   </div>
+   <!-- STATUS BAR -->
+   <div class="status-bar">
+    <div class="status-seg">
+     <div class="status-led led-green">
+     </div>
+     <span>
+      Connected
+     </span>
+    </div>
+    <div class="status-seg">
+     Company:
+     <strong id="sb-company">
+      SBODemoUS
+     </strong>
+    </div>
+    <div class="status-seg">
+     User:
+     <strong id="sb-user">
+      manager
+     </strong>
+    </div>
+    <div class="status-seg">
+     DB:
+     <strong>
+      MSSQL 2016
+     </strong>
+    </div>
+    <div class="status-seg">
+     License:
+     <strong>
+      Professional
+     </strong>
+    </div>
+    <div class="status-seg">
+     <div class="status-led led-yellow">
+     </div>
+     <span id="sb-datetime">
+      --
+     </span>
+    </div>
+   </div>
+  </div>
+  <!-- /main-screen -->
+  <script>
+   // ── Utilities ──────────────────────────────────────────────
+      function updateClocks() {
+        var d = new Date();
+        var s = d.toLocaleDateString() + '  ' + d.toLocaleTimeString();
+        var el1 = document.getElementById('bar-datetime');
+        var el2 = document.getElementById('sb-datetime');
+        if (el1) el1.textContent = s;
+        if (el2) el2.textContent = s;
+      }
+      updateClocks();
+      setInterval(updateClocks, 1000);
+
+      // ── Login ───────────────────────────────────────────────────
+      document.getElementById('login-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var uid = document.getElementById('user-id').value.trim() || 'manager';
+        document.getElementById('bar-user').textContent = uid;
+        document.getElementById('sb-user').textContent = uid;
+        document.getElementById('login-screen').style.display = 'none';
+        var ms = document.getElementById('main-screen');
+        ms.classList.add('visible');
+        renderDashboard();
+      });
+
+      document.getElementById('btn-cancel').addEventListener('click', function() {
+        document.getElementById('user-id').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('user-id').focus();
+      });
+
+      // logout
+      function doLogout() {
+        document.getElementById('main-screen').classList.remove('visible');
+        document.getElementById('login-screen').style.display = 'flex';
+        document.getElementById('password').value = '';
+        document.getElementById('user-id').focus();
+      }
+      document.getElementById('btn-logout').addEventListener('click', doLogout);
+      document.getElementById('menu-logout').addEventListener('click', doLogout);
+
+      // ── Left menu tree ──────────────────────────────────────────
+      function toggleGroup(header) {
+        var arrow = header.querySelector('.tree-arrow');
+        var children = header.nextElementSibling;
+        var isOpen = children.classList.contains('open');
+        // close all
+        document.querySelectorAll('.module-group-header').forEach(function(h) {
+          h.classList.remove('active');
+          h.querySelector('.tree-arrow').classList.remove('open');
+          h.nextElementSibling.classList.remove('open');
+        });
+        if (!isOpen) {
+          header.classList.add('active');
+          arrow.classList.add('open');
+          children.classList.add('open');
+        }
+      }
+
+      // ── Tabs ────────────────────────────────────────────────────
+      var openTabs = ['dashboard'];
+
+      function openTab(id, label) {
+        // deselect all children
+        document.querySelectorAll('.module-child').forEach(function(c) { c.classList.remove('selected'); });
+        // find and select clicked child
+        document.querySelectorAll('.module-child').forEach(function(c) {
+          if (c.getAttribute('onclick') && c.getAttribute('onclick').includes("'" + id + "'")) {
+            c.classList.add('selected');
+          }
+        });
+        if (openTabs.indexOf(id) === -1) {
+          openTabs.push(id);
+          var tabs = document.getElementById('content-tabs');
+          var tab = document.createElement('div');
+          tab.className = 'content-tab';
+          tab.setAttribute('data-tab', id);
+          tab.innerHTML = label + ' <span class="tab-close" onclick="closeTab(event,\'' + id + '\')">✕</span>';
+          tab.addEventListener('click', function(){ switchTab(id); });
+          tabs.appendChild(tab);
+        }
+        switchTab(id);
+      }
+
+      function switchTab(id) {
+        openTabs.forEach(function(t) {
+          var el = document.querySelector('.content-tab[data-tab="' + t + '"]');
+          if (el) el.classList.remove('active');
+        });
+        var active = document.querySelector('.content-tab[data-tab="' + id + '"]');
+        if (active) active.classList.add('active');
+        if (id === 'dashboard') {
+          renderDashboard();
+        } else {
+          renderPlaceholder(id);
+        }
+      }
+
+      function closeTab(e, id) {
+        e.stopPropagation();
+        if (id === 'dashboard') return;
+        var idx = openTabs.indexOf(id);
+        if (idx > -1) openTabs.splice(idx, 1);
+        var el = document.querySelector('.content-tab[data-tab="' + id + '"]');
+        if (el) el.remove();
+        switchTab(openTabs[openTabs.length - 1]);
+      }
+
+      // ── Render Dashboard ────────────────────────────────────────
+      function renderDashboard() {
+        var pane = document.getElementById('content-pane');
+        pane.innerHTML = '<div class="dashboard-wrap">' +
+          '<div class="dash-welcome-bar">' +
+            '<span class="dash-welcome-text">Welcome to SAP Business One</span>' +
+            '<span class="dash-welcome-sub">&nbsp;| Company: SBODemoUS &nbsp;| User: ' + document.getElementById('sb-user').textContent + ' &nbsp;| Today: ' + new Date().toLocaleDateString() + '</span>' +
+          '</div>' +
+          // KPI row
+          '<div class="dash-kpi-row">' +
+            kpiCard('Open Sales Orders', '142', '+8 today', true) +
+            kpiCard('A/R Overdue', '$34,820', '12 invoices', false) +
+            kpiCard('Stock Value', '$1,248,500', '+2.3%', true) +
+            kpiCard('Open POs', '56', '-3 today', true) +
+            kpiCard('Net Revenue MTD', '$482,300', '+11.4%', true) +
+            kpiCard('Cash &amp; Bank', '$245,100', 'Updated now', true) +
+          '</div>' +
+          // Row 1
+          '<div class="dash-row">' +
+            '<div class="dash-panel" style="flex:2">' +
+              '<div class="dash-panel-header"><span class="dash-panel-title">📋 Recent Sales Orders</span></div>' +
+              '<div class="dash-panel-body">' +
+                '<table class="dash-table"><thead><tr><th>Doc No.</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>' +
+                  salesRows() +
+                '</tbody></table>' +
+              '</div>' +
+            '</div>' +
+            '<div class="dash-panel" style="flex:1">' +
+              '<div class="dash-panel-header"><span class="dash-panel-title">📊 Monthly Sales</span></div>' +
+              '<div class="dash-panel-body">' + salesChart() + '</div>' +
+            '</div>' +
+          '</div>' +
+          // Row 2
+          '<div class="dash-row">' +
+            '<div class="dash-panel" style="flex:1">' +
+              '<div class="dash-panel-header"><span class="dash-panel-title">⚡ Quick Launch</span></div>' +
+              '<div class="dash-panel-body">' + quickLaunch() + '</div>' +
+            '</div>' +
+            '<div class="dash-panel" style="flex:1">' +
+              '<div class="dash-panel-header"><span class="dash-panel-title">📬 Alerts &amp; Activities</span></div>' +
+              '<div class="dash-panel-body">' + activityList() + '</div>' +
+            '</div>' +
+            '<div class="dash-panel" style="flex:1">' +
+              '<div class="dash-panel-header"><span class="dash-panel-title">📦 Low Stock Items</span></div>' +
+              '<div class="dash-panel-body">' +
+                '<table class="dash-table"><thead><tr><th>Item</th><th>In Stock</th><th>Min</th></tr></thead><tbody>' +
+                  stockRows() +
+                '</tbody></table>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      function kpiCard(label, value, change, pos) {
+        return '<div class="kpi-card">' +
+          '<div class="kpi-label">' + label + '</div>' +
+          '<div class="kpi-value">' + value + '</div>' +
+          '<div class="kpi-change ' + (pos ? 'kpi-pos' : 'kpi-neg') + '">' + (pos ? '▲ ' : '▼ ') + change + '</div>' +
+        '</div>';
+      }
+
+      function salesRows() {
+        var rows = [
+          ['SO-10042', 'American Computers', '05/01/2026', '$12,450', '🟡 Open'],
+          ['SO-10041', 'Maxi-Teq', '05/01/2026', '$8,300', '🟢 Delivered'],
+          ['SO-10040', 'One Time Customer', '04/30/2026', '$450', '🔵 Invoiced'],
+          ['SO-10039', 'Parameter Technology', '04/30/2026', '$23,600', '🟡 Open'],
+          ['SO-10038', 'Earthshaker Corp', '04/29/2026', '$5,100', '🔵 Invoiced'],
+          ['SO-10037', 'American Computers', '04/28/2026', '$9,820', '🟢 Delivered'],
+        ];
+        return rows.map(function(r) {
+          return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + r[3] + '</td><td>' + r[4] + '</td></tr>';
+        }).join('');
+      }
+
+      function salesChart() {
+        var months = ['Nov','Dec','Jan','Feb','Mar','Apr'];
+        var vals = [65, 80, 55, 90, 72, 100];
+        var max = 100;
+        var html = '<div class="chart-bar-wrap">';
+        for (var i = 0; i < months.length; i++) {
+          var h = Math.round((vals[i] / max) * 82);
+          html += '<div class="chart-bar-col">' +
+            '<div class="chart-bar' + (i === 5 ? ' highlight' : '') + '" style="height:' + h + 'px"></div>' +
+            '<div class="chart-bar-label">' + months[i] + '</div>' +
+          '</div>';
+        }
+        html += '</div>';
+        html += '<div style="font-size:10px;color:#888;text-align:center;margin-top:2px;">Revenue in $K (last 6 months)</div>';
+        return html;
+      }
+
+      function quickLaunch() {
+        var items = [
+          ['📄','Sales Quotation','quotation'],
+          ['📦','Sales Order','order'],
+          ['🧾','A/R Invoice','ar-inv'],
+          ['🏪','Purchase Order','po'],
+          ['📥','Goods Receipt','goods-receipt'],
+          ['📇','BP Master Data','bpmaster'],
+          ['🔖','Item Master','item-master'],
+          ['📊','Financial Reports','financial-reports'],
+        ];
+        var html = '<div class="shortcut-grid">';
+        items.forEach(function(it) {
+          html += '<div class="shortcut-btn" onclick="openTab(\'' + it[2] + '\',\'' + it[1] + '\')">' +
+            '<span class="shortcut-icon">' + it[0] + '</span>' + it[1] + '</div>';
+        });
+        html += '</div>';
+        return html;
+      }
+
+      function activityList() {
+        var items = [
+          ['dot-red','10:32 AM','A/R Invoice overdue: $4,200 - Earthshaker'],
+          ['dot-orange','09:18 AM','Approval required: PO-3381 ($18,000)'],
+          ['dot-blue','09:05 AM','New Sales Order from American Computers'],
+          ['dot-green','08:50 AM','Delivery confirmed: SO-10038'],
+          ['dot-blue','08:30 AM','Bank statement imported successfully'],
+          ['dot-orange','Yesterday','Stock alert: Item A00001 below min qty'],
+        ];
+        return items.map(function(it) {
+          return '<div class="activity-item"><div class="activity-dot ' + it[0] + '"></div>' +
+            '<span class="activity-time">' + it[1] + '</span>' +
+            '<span class="activity-text">' + it[2] + '</span></div>';
+        }).join('');
+      }
+
+      function stockRows() {
+        var rows = [
+          ['A00001 - PC Comp HD', '5', '10'],
+          ['A00027 - Monitor 24"', '3', '8'],
+          ['B10020 - USB Hub', '12', '15'],
+          ['C00045 - Printer Ink', '2', '20'],
+          ['D00012 - Keyboard', '7', '10'],
+        ];
+        return rows.map(function(r) {
+          var low = parseInt(r[1]) < parseInt(r[2]);
+          return '<tr><td>' + r[0] + '</td>' +
+            '<td style="color:' + (low ? '#c03020' : '#1a7a30') + ';font-weight:bold">' + r[1] + '</td>' +
+            '<td>' + r[2] + '</td></tr>';
+        }).join('');
+      }
+
+      function renderPlaceholder(id) {
+        var labels = {
+          'system-init':'System Initialization', 'users':'Users', 'auth':'Authorizations',
+          'alerts':'Alert Management', 'coa':'Chart of Accounts', 'je':'Journal Entry',
+          'je-report':'Journal Entry Report', 'budget':'Budget', 'cost-acc':'Cost Accounting',
+          'quotation':'Sales Quotation', 'order':'Sales Order', 'delivery':'Delivery',
+          'ar-inv':'A/R Invoice', 'ar-credit':'A/R Credit Memo', 'customers':'Customers',
+          'po':'Purchase Order', 'grpo':'Goods Receipt PO', 'ap-inv':'A/P Invoice',
+          'ap-credit':'A/P Credit Memo', 'vendors':'Vendors', 'bpmaster':'BP Master Data',
+          'activities':'Activities', 'campaign':'Campaign', 'incoming':'Incoming Payments',
+          'outgoing':'Outgoing Payments', 'bank-recon':'Bank Statement Processing',
+          'item-master':'Item Master Data', 'goods-receipt':'Goods Receipt', 'goods-issue':'Goods Issue',
+          'stock-count':'Stock Counting', 'warehouses':'Warehouses', 'mrp-wiz':'MRP Wizard',
+          'order-rec':'Order Recommendation', 'bom':'Bill of Materials', 'wo':'Production Order',
+          'service-call':'Service Call', 'contracts':'Service Contracts', 'equipment':'Equipment Card',
+          'employees':'Employee Master Data', 'attendance':'Attendance',
+          'financial-reports':'Financial Reports', 'sales-reports':'Sales Reports',
+          'inventory-reports':'Inventory Reports', 'purchasing-reports':'Purchasing Reports',
+        };
+        var label = labels[id] || id;
+        var pane = document.getElementById('content-pane');
+        pane.innerHTML = '<div style="padding:8px;">' +
+          '<div class="form-info-banner">ℹ &nbsp;<strong>' + label + '</strong> &nbsp;– Form area (no record selected)</div>' +
+          '<div style="background:#f8f8f8;border:1px solid #b0c8e0;padding:0;">' +
+            '<div style="height:28px;background:linear-gradient(180deg,#d8e8f8 0%,#bcd4f0 100%);border-bottom:1px solid #9ab8d8;display:flex;align-items:center;padding:0 8px;gap:8px;">' +
+              '<span style="font-size:11px;font-weight:bold;color:#1a3a6a;">' + label + '</span>' +
+              '<span style="font-size:10px;color:#5a7a9a;">| Find Mode</span>' +
+            '</div>' +
+            '<div style="padding:16px;font-size:11px;color:#777;'
+            + 'display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;gap:8px;">' +
+              '<div style="font-size:32px;">📭</div>' +
+              '<div>No record selected. Use the toolbar to <strong>Find</strong> or <strong>Add</strong> a record.</div>' +
+              '<div style="display:flex;gap:6px;margin-top:10px;">' +
+                '<button class="btn-sap" style="height:24px;padding:0 14px;font-size:11px;'
+                + 'border:1px solid #7a9ab8;cursor:pointer;background:linear-gradient(180deg,#f5f5f5 0%,#dcdcdc 100%)">🔍 Find</button>' +
+                '<button class="btn-sap primary" style="height:24px;padding:0 14px;font-size:11px;'
+                + 'border:1px solid #b06000;cursor:pointer;background:linear-gradient(180deg,#f0a000 0%,#d48000 100%);color:#3a1800;font-weight:bold">➕ Add New</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      // ── Menu search ──────────────────────────────────────────────
+      document.getElementById('menu-search').addEventListener('input', function() {
+        var q = this.value.toLowerCase().trim();
+        document.querySelectorAll('.module-child').forEach(function(c) {
+          var txt = c.textContent.toLowerCase();
+          c.style.display = (!q || txt.includes(q)) ? '' : 'none';
+        });
+        if (q) {
+          document.querySelectorAll('.module-group-header').forEach(function(h) {
+            h.classList.remove('active');
+            h.querySelector('.tree-arrow').classList.remove('open');
+            h.nextElementSibling.classList.remove('open');
+          });
+          document.querySelectorAll('.module-children').forEach(function(c) {
+            var visible = Array.from(c.querySelectorAll('.module-child')).some(function(ch) {
+              return ch.style.display !== 'none';
+            });
+            if (visible) { c.classList.add('open'); c.previousElementSibling.classList.add('active'); c.previousElementSibling.querySelector('.tree-arrow').classList.add('open'); }
+          });
+        }
+      });
+  </script>
+ </body>
+</html>

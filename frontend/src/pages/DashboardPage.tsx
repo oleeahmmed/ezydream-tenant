@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { getAccessToken, clearTokens } from "../lib/auth";
 import { getMe } from "../api/auth";
 import { SapDashboardShell } from "../components/SapDashboardShell";
+import { WorkspaceProvider } from "../workspace/WorkspaceContext";
 
 export default function DashboardPage() {
   const nav = useNavigate();
@@ -28,8 +29,8 @@ export default function DashboardPage() {
 
   if (!token) return null;
   return (
-    <SapDashboardShell userLabel={user}>
-      <Outlet />
-    </SapDashboardShell>
+    <WorkspaceProvider>
+      <SapDashboardShell userLabel={user} />
+    </WorkspaceProvider>
   );
 }

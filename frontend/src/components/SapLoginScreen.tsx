@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { postLogin } from "../api/auth";
 import { setTokens } from "../lib/auth";
+import { BRAND_NAME, BRAND_NAME_SHORT, BRAND_SUITE } from "../lib/brand";
 import { SapButton } from "./SapButton";
 
 /** Login window — layout and classes from ``frontend/ui/sap-dash.html`` */
@@ -40,8 +41,8 @@ export function SapLoginScreen() {
       <div className="login-window login-shadow">
         <div className="login-titlebar">
           <div className="login-titlebar-left">
-            <div className="login-titlebar-icon">S</div>
-            <span className="login-titlebar-text">SAP Business One - Log On</span>
+            <div className="login-titlebar-icon">E</div>
+            <span className="login-titlebar-text">{BRAND_NAME} — Log On</span>
           </div>
           <div className="login-titlebar-btns">
             <button type="button" className="win-btn" title="Minimize">
@@ -54,15 +55,16 @@ export function SapLoginScreen() {
         </div>
         <div className="login-body">
           <div className="login-side-banner">
-            <div className="sap-logo-big">SAP</div>
+            <div className="sap-logo-big">{BRAND_NAME_SHORT}</div>
             <div className="login-side-text">
-              <b>Business One</b>
+              <b>{BRAND_NAME}</b>
               <br />
-              version 9.3
+              Secure sign-in
             </div>
             <div className="login-side-text" style={{ marginTop: 12, fontSize: 9 }}>
-              Powered by SAP HANA
-              <br />© 2018 SAP SE
+              {BRAND_SUITE}
+              <br />
+              © EzyDream
             </div>
           </div>
           <div className="login-form-area">

@@ -1,4 +1,4 @@
-/* From frontend/ui/sap-dash.html — SAP B1 9.3 style (login + shell) */
+/* From frontend/ui/sap-dash.html — enterprise shell (login + workspace) */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -7,8 +7,8 @@
 
 body {
   font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-  font-size: 12px;
-  background: #c8c8c8;
+  font-size: 13px;
+  background: #d4dce6;
   color: #000;
   overflow: hidden;
   height: 100vh;
@@ -257,23 +257,23 @@ body {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  background: #c0c0c0;
+  background: #d0d8e2;
 }
 
 .menu-bar {
-  height: 22px;
+  height: 26px;
   background: linear-gradient(180deg, #fafafa 0%, #e8e8e8 100%);
   border-bottom: 1px solid #a0a0a0;
   display: flex;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 6px;
   flex-shrink: 0;
   user-select: none;
 }
 
 .menu-item {
-  padding: 2px 10px;
-  font-size: 12px;
+  padding: 3px 12px;
+  font-size: 13px;
   cursor: pointer;
   color: #000;
   position: relative;
@@ -302,8 +302,8 @@ body {
 }
 
 .dropdown-item {
-  padding: 4px 18px;
-  font-size: 11px;
+  padding: 6px 18px;
+  font-size: 12px;
   cursor: pointer;
   color: #000;
   white-space: nowrap;
@@ -321,26 +321,26 @@ body {
 }
 
 .toolbar {
-  height: 36px;
+  height: 42px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #fff 0%, #d8d8d8 100%);
+  background: linear-gradient(180deg, #fff 0%, #dce4ee 100%);
   border-bottom: 2px solid #8abbe8;
   display: flex;
   align-items: center;
-  padding: 0 4px;
-  gap: 1px;
+  padding: 0 6px;
+  gap: 2px;
 }
 
 .tb-sep {
   width: 1px;
-  height: 26px;
+  height: 30px;
   background: #a8a8a8;
-  margin: 0 3px;
+  margin: 0 4px;
 }
 
 .tb-btn {
-  width: 30px;
-  height: 28px;
+  width: 36px;
+  height: 32px;
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
@@ -348,9 +348,9 @@ body {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   border-radius: 2px;
-  font-size: 9px;
+  font-size: 10px;
   color: #444;
 }
 
@@ -360,25 +360,25 @@ body {
 }
 
 .tb-icon {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
 }
 
 .tb-label {
-  font-size: 8px;
+  font-size: 9px;
   color: #555;
   line-height: 1;
 }
 
 .sap-brand-bar {
-  height: 32px;
+  height: 38px;
   flex-shrink: 0;
-  background: linear-gradient(90deg, #1254a0 0%, #1c6ea4 30%, #082a60 100%);
+  background: linear-gradient(90deg, #1a6ab8 0%, #2a7ec8 35%, #0d3a6a 100%);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -392,23 +392,24 @@ body {
 }
 
 .sap-mini-logo {
-  width: 42px;
+  min-width: 52px;
   height: 18px;
-  background: linear-gradient(135deg, #f0a000 0%, #ffcc00 50%, #d08000 100%);
+  padding: 0 6px;
+  background: linear-gradient(135deg, #f5b020 0%, #ffd860 50%, #e09010 100%);
   border: 1px solid #b07000;
   border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 900;
-  color: #5a1000;
-  letter-spacing: 0.5px;
+  color: #4a2800;
+  letter-spacing: 0.02em;
 }
 
 .sap-brand-title {
   color: #d0e8ff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: bold;
 }
 
@@ -419,8 +420,8 @@ body {
 }
 
 .brand-info {
-  color: #90b8d8;
-  font-size: 10px;
+  color: #a8d0f0;
+  font-size: 11px;
 }
 
 .brand-user-chip {
@@ -442,33 +443,48 @@ body {
 }
 
 .left-panel {
-  width: 210px;
+  width: 238px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #e8e8e8 0%, #d8d8d8 100%);
-  border-right: 2px solid #8abbe8;
+  background: linear-gradient(180deg, #eef2f8 0%, #dce4ee 100%);
+  border-right: 2px solid #7aace0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .module-search {
-  padding: 4px 5px;
-  border-bottom: 1px solid #b0b0b0;
-  background: #f0f0f0;
+  padding: 5px 6px;
+  border-bottom: 1px solid #a8b8c8;
+  background: linear-gradient(180deg, #f6f9fc 0%, #e8eef4 100%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.module-search input {
-  width: 100%;
-  height: 20px;
+.module-search-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2a6090;
+  opacity: 0.9;
+}
+
+.module-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
   border: 1px solid #7a9fc8;
   background: #fff;
-  padding: 0 5px;
-  font-size: 11px;
+  padding: 0 6px;
+  font-size: 12px;
   outline: none;
+  border-radius: 2px;
 }
 
-.module-search input:focus {
+.module-search-input:focus {
   border-color: #1a6ab0;
+  box-shadow: 0 0 0 2px rgba(26, 106, 176, 0.2);
 }
 
 .left-menu {
@@ -494,8 +510,8 @@ body {
 }
 
 .module-group-header {
-  height: 26px;
-  padding: 0 6px;
+  height: 28px;
+  padding: 0 7px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -503,7 +519,7 @@ body {
   background: linear-gradient(180deg, #ccd8e8 0%, #b8c8dc 100%);
   border-bottom: 1px solid #a0b0c0;
   user-select: none;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: bold;
   color: #1a3a6a;
 }
@@ -545,8 +561,8 @@ body {
 }
 
 .module-child {
-  padding: 4px 8px 4px 24px;
-  font-size: 11px;
+  padding: 5px 8px 5px 24px;
+  font-size: 12px;
   cursor: pointer;
   color: #1a3060;
   display: flex;
@@ -565,20 +581,117 @@ body {
 }
 
 .module-child-icon {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .content-area {
   flex: 1;
   overflow: hidden;
-  background: #c8c8c8;
+  background: #d0d8e2;
   display: flex;
   flex-direction: column;
 }
 
 .content-area-empty {
   flex: 1;
-  background: #c8c8c8;
+  background: #d0d8e2;
+}
+
+.content-tabs {
+  height: 28px;
+  background: linear-gradient(180deg, #e8eaee 0%, #d0d8e0 100%);
+  border-bottom: 1px solid #a0a0a0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 5px;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.content-tab {
+  height: 25px;
+  padding: 0 12px 0 14px;
+  font-size: 12px;
+  background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 100%);
+  border: 1px solid #a0a0a0;
+  border-bottom: none;
+  cursor: pointer;
+  color: #555;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+}
+
+.content-tab.active {
+  background: #fff;
+  color: #000;
+  font-weight: bold;
+  border-color: #5a9fd4;
+  border-bottom: 1px solid #fff;
+  position: relative;
+  z-index: 1;
+}
+
+.content-tab .tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-tab .tab-close {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #888;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.content-tab.active .tab-close {
+  color: #444;
+}
+
+.content-tab .tab-close:hover {
+  color: #a02020;
+}
+
+.content-pane {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fff;
+}
+
+.content-pane::-webkit-scrollbar {
+  width: 10px;
+}
+
+.content-pane::-webkit-scrollbar-track {
+  background: #d8d8d8;
+}
+
+.content-pane::-webkit-scrollbar-thumb {
+  background: #9ab0c8;
+  border: 1px solid #7a90a8;
+}
+
+.workspace-home {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #1a3060;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f8 100%);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.workspace-home h1 {
+  font-size: 16px;
+  margin: 0 0 8px;
+  color: #1254a0;
+}
+
+.workspace-home p {
+  margin: 0 0 6px;
+  line-height: 1.45;
 }
 
 .status-bar {

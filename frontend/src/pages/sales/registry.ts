@@ -1,0 +1,380 @@
+/** Sales A/R CRUD → ``/api/sales`` (matches ``apps/sales/api/views.py``). */
+
+export type FieldKind = "text" | "number" | "date" | "datetime-local";
+
+export type HeaderField = {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  pk?: boolean;
+  readonly?: boolean;
+};
+
+export type ListCol = { key: string; label: string };
+
+export type SalesLinesDef = {
+  listPath: (docEntry: number) => string;
+  detailPath: (docEntry: number, lineNum: number) => string;
+  postPath: string;
+  columns: ListCol[];
+  editKeys: string[];
+};
+
+export type SalesRegistryEntry = {
+  id: string;
+  title: string;
+  listPath: string;
+  detailPath: (row: Record<string, unknown>) => string;
+  pkKeys: string[];
+  listColumns: ListCol[];
+  headerFields: HeaderField[];
+  createKeys: string[];
+  patchKeys: string[];
+  lines: SalesLinesDef;
+};
+
+const API = "/api/sales";
+
+const LINE_COLS: ListCol[] = [
+  { key: "LineNum", label: "#" },
+  { key: "ItemCode", label: "Item No." },
+  { key: "Dscription", label: "Description" },
+  { key: "Quantity", label: "Qty" },
+  { key: "Price", label: "Price" },
+  { key: "WhsCode", label: "Whs" },
+  { key: "LineTotal", label: "Line Total" },
+];
+
+const LINE_EDIT = ["ItemCode", "Dscription", "Quantity", "Price", "DiscPrcnt", "WhsCode", "LineTotal"];
+
+const HEADER_WITH_STATUS: HeaderField[] = [
+  { key: "DocEntry", label: "DocEntry", kind: "number", pk: true, readonly: true },
+  { key: "DocNum", label: "DocNum", kind: "number" },
+  { key: "CardCode", label: "Customer", kind: "text" },
+  { key: "CardName", label: "Name", kind: "text" },
+  { key: "NumAtCard", label: "Num at Card", kind: "text" },
+  { key: "CntctPrsn", label: "Contact", kind: "text" },
+  { key: "DocCur", label: "Currency", kind: "text" },
+  { key: "DocStatus", label: "Status", kind: "text" },
+  { key: "DocDate", label: "Posting Date", kind: "date" },
+  { key: "DocDueDate", label: "Due Date", kind: "date" },
+  { key: "TaxDate", label: "Tax Date", kind: "date" },
+  { key: "DocTotal", label: "Doc Total", kind: "text" },
+  { key: "VatSum", label: "Tax", kind: "text" },
+  { key: "DiscSum", label: "Discount", kind: "text" },
+  { key: "Comments", label: "Remarks", kind: "text" },
+  { key: "SlpCode", label: "Sales Emp.", kind: "number" },
+  { key: "OwnerCode", label: "Owner", kind: "text" },
+  { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
+];
+
+const HEADER_INVOICE: HeaderField[] = [
+  { key: "DocEntry", label: "DocEntry", kind: "number", pk: true, readonly: true },
+  { key: "DocNum", label: "DocNum", kind: "number" },
+  { key: "CardCode", label: "Customer", kind: "text" },
+  { key: "CardName", label: "Name", kind: "text" },
+  { key: "NumAtCard", label: "Num at Card", kind: "text" },
+  { key: "CntctPrsn", label: "Contact", kind: "text" },
+  { key: "DocCur", label: "Currency", kind: "text" },
+  { key: "DocDate", label: "Posting Date", kind: "date" },
+  { key: "DocDueDate", label: "Due Date", kind: "date" },
+  { key: "TaxDate", label: "Tax Date", kind: "date" },
+  { key: "DocTotal", label: "Doc Total", kind: "text" },
+  { key: "VatSum", label: "Tax", kind: "text" },
+  { key: "DiscSum", label: "Discount", kind: "text" },
+  { key: "Comments", label: "Remarks", kind: "text" },
+  { key: "SlpCode", label: "Sales Emp.", kind: "number" },
+  { key: "OwnerCode", label: "Owner", kind: "text" },
+  { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
+];
+
+const LIST_STD: ListCol[] = [
+  { key: "DocEntry", label: "Entry" },
+  { key: "DocNum", label: "No." },
+  { key: "CardCode", label: "Customer" },
+  { key: "CardName", label: "Name" },
+  { key: "DocDate", label: "Date" },
+  { key: "DocTotal", label: "Total" },
+  { key: "DocStatus", label: "St" },
+];
+
+const LIST_INV: ListCol[] = [
+  { key: "DocEntry", label: "Entry" },
+  { key: "DocNum", label: "No." },
+  { key: "CardCode", label: "Customer" },
+  { key: "CardName", label: "Name" },
+  { key: "DocDate", label: "Date" },
+  { key: "DocTotal", label: "Total" },
+  { key: "VatSum", label: "Tax" },
+];
+
+export const SALES_REGISTRY: SalesRegistryEntry[] = [
+  {
+    id: "quotation",
+    title: "Sales Quotation — OQUT",
+    listPath: `${API}/quotations`,
+    detailPath: (r) => `${API}/quotations/${Number(r.DocEntry)}`,
+    pkKeys: ["DocEntry"],
+    listColumns: LIST_STD,
+    headerFields: HEADER_WITH_STATUS,
+    createKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+    ],
+    patchKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+      "Canceled",
+    ],
+    lines: {
+      listPath: (de) => `${API}/quotation-lines?doc_entry=${de}&limit=200&offset=0`,
+      detailPath: (de, ln) => `${API}/quotation-lines/${de}/${ln}`,
+      postPath: `${API}/quotation-lines`,
+      columns: LINE_COLS,
+      editKeys: LINE_EDIT,
+    },
+  },
+  {
+    id: "sales-order",
+    title: "Sales Order — ORDR",
+    listPath: `${API}/sales-orders`,
+    detailPath: (r) => `${API}/sales-orders/${Number(r.DocEntry)}`,
+    pkKeys: ["DocEntry"],
+    listColumns: LIST_STD,
+    headerFields: HEADER_WITH_STATUS,
+    createKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+    ],
+    patchKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+      "Canceled",
+    ],
+    lines: {
+      listPath: (de) => `${API}/sales-order-lines?doc_entry=${de}&limit=200&offset=0`,
+      detailPath: (de, ln) => `${API}/sales-order-lines/${de}/${ln}`,
+      postPath: `${API}/sales-order-lines`,
+      columns: [...LINE_COLS, { key: "BaseEntry", label: "Base" }, { key: "BaseLine", label: "BL" }],
+      editKeys: [...LINE_EDIT, "BaseEntry", "BaseLine"],
+    },
+  },
+  {
+    id: "delivery",
+    title: "Delivery — ODLN",
+    listPath: `${API}/deliveries`,
+    detailPath: (r) => `${API}/deliveries/${Number(r.DocEntry)}`,
+    pkKeys: ["DocEntry"],
+    listColumns: LIST_STD,
+    headerFields: HEADER_WITH_STATUS,
+    createKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+    ],
+    patchKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+      "Canceled",
+    ],
+    lines: {
+      listPath: (de) => `${API}/delivery-lines?doc_entry=${de}&limit=200&offset=0`,
+      detailPath: (de, ln) => `${API}/delivery-lines/${de}/${ln}`,
+      postPath: `${API}/delivery-lines`,
+      columns: [...LINE_COLS, { key: "BaseEntry", label: "Base" }],
+      editKeys: [...LINE_EDIT, "BaseType", "BaseEntry", "BaseLine"],
+    },
+  },
+  {
+    id: "return",
+    title: "Returns — ORDN",
+    listPath: `${API}/customer-returns`,
+    detailPath: (r) => `${API}/customer-returns/${Number(r.DocEntry)}`,
+    pkKeys: ["DocEntry"],
+    listColumns: LIST_STD,
+    headerFields: HEADER_WITH_STATUS,
+    createKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+    ],
+    patchKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocStatus",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+      "Canceled",
+    ],
+    lines: {
+      listPath: (de) => `${API}/customer-return-lines?doc_entry=${de}&limit=200&offset=0`,
+      detailPath: (de, ln) => `${API}/customer-return-lines/${de}/${ln}`,
+      postPath: `${API}/customer-return-lines`,
+      columns: [...LINE_COLS, { key: "BaseEntry", label: "Base" }],
+      editKeys: [...LINE_EDIT, "BaseType", "BaseEntry", "BaseLine"],
+    },
+  },
+  {
+    id: "invoice",
+    title: "A/R Invoice — OINV",
+    listPath: `${API}/invoices`,
+    detailPath: (r) => `${API}/invoices/${Number(r.DocEntry)}`,
+    pkKeys: ["DocEntry"],
+    listColumns: LIST_INV,
+    headerFields: HEADER_INVOICE,
+    createKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+    ],
+    patchKeys: [
+      "DocNum",
+      "CardCode",
+      "CardName",
+      "NumAtCard",
+      "CntctPrsn",
+      "DocCur",
+      "DocDate",
+      "DocDueDate",
+      "TaxDate",
+      "DocTotal",
+      "VatSum",
+      "DiscSum",
+      "Comments",
+      "SlpCode",
+      "OwnerCode",
+      "Canceled",
+    ],
+    lines: {
+      listPath: (de) => `${API}/invoice-lines?doc_entry=${de}&limit=200&offset=0`,
+      detailPath: (de, ln) => `${API}/invoice-lines/${de}/${ln}`,
+      postPath: `${API}/invoice-lines`,
+      columns: [...LINE_COLS, { key: "BaseEntry", label: "Base" }],
+      editKeys: [...LINE_EDIT, "BaseType", "BaseEntry", "BaseLine"],
+    },
+  },
+];
+
+export function getSalesModule(id: string | undefined): SalesRegistryEntry | undefined {
+  if (!id) return undefined;
+  return SALES_REGISTRY.find((x) => x.id === id);
+}

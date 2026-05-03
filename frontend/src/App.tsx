@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { getAccessToken } from "./lib/auth";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
-import InventoryModulePage from "./pages/InventoryModulePage";
 
 function RequireAuth({ children }: { children: ReactElement }) {
   return getAccessToken() ? children : <Navigate to="/login" replace />;
@@ -21,9 +20,7 @@ export default function App() {
               <DashboardPage />
             </RequireAuth>
           }
-        >
-          <Route path="inventory/:moduleId" element={<InventoryModulePage />} />
-        </Route>
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

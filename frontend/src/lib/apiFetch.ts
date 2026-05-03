@@ -1,10 +1,24 @@
 import { getAccessToken, clearTokens } from "./auth";
 
+function formatDetailEntry(entry: unknown): string {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && "msg" in entry) {
+    const m = (entry as { msg?: unknown }).msg;
+    if (typeof m === "string") return m;
+  }
+  try {
+    return JSON.stringify(entry);
+  } catch {
+    return String(entry);
+  }
+}
+
 function detailMsg(data: unknown): string {
   if (data && typeof data === "object" && "detail" in data) {
     const d = (data as { detail: unknown }).detail;
     if (typeof d === "string") return d;
-    if (Array.isArray(d)) return d.map(String).join("; ");
+    if (Array.isArray(d)) return d.map(formatDetailEntry).join("; ");
+    if (d && typeof d === "object") return formatDetailEntry(d);
   }
   return "Request failed";
 }

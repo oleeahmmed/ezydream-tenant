@@ -8,7 +8,7 @@ type SapButtonProps = {
   onClick?: () => void;
 };
 
-/** SAP B1–style button (``frontend/ui/sap-dash.html`` ``.btn-sap``) */
+/** Enterprise-style button (``frontend/ui/sap-dash.html`` ``.btn-sap``). */
 export function SapButton({ children, primary, type = "button", disabled, onClick }: SapButtonProps) {
   const cls = primary ? "btn-sap primary" : "btn-sap";
   return (

@@ -35,6 +35,8 @@ export type InvRegistryEntry = {
   /** Keys allowed on PATCH (non-null). */
   patchKeys: string[];
   lines?: LinesDef;
+  /** When true: no list on open; Find loads list (optional ``q`` from primary key field); pick row loads detail and hides list. */
+  formFirstListOnFind?: boolean;
 };
 
 const API = "/api/inventory";
@@ -96,6 +98,7 @@ export const INVENTORY_REGISTRY: InvRegistryEntry[] = [
     ],
     createKeys: ["ItemCode", "ItemName", "ItmsGrpCod", "InvntItem", "OnHand", "IsCommited", "OnOrder", "ByWh", "DfltWH", "FrgnName", "CodeBars", "SalItem", "PrchseItem", "SalUnitMsr", "BuyUnitMsr"],
     patchKeys: ["ItemName", "ItmsGrpCod", "InvntItem", "OnHand", "IsCommited", "OnOrder", "ByWh", "DfltWH", "FrgnName", "CodeBars", "SalItem", "PrchseItem", "SalUnitMsr", "BuyUnitMsr", "ValidFor"],
+    formFirstListOnFind: true,
   },
   {
     id: "item-whs",
