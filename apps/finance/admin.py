@@ -29,7 +29,8 @@ class OACTAdmin(_FinanceErpAdmin):
 
     fieldsets = (
         (_("Account"), {"fields": (("AcctCode", "AcctName"), ("FatherNum",)), "classes": ("tab",)}),
-        (_("Classification"), {"fields": (("GroupMask", "Postable", "LocCash"),), "classes": ("tab",)}),
+        (_("Classification"), {"fields": (("GroupMask", "Postable", "LocCash", "AcctFixed"),), "classes": ("tab",)}),
+        (_("Validity & export"), {"fields": (("ValidFor", "Frozen"), ("Levels", "ExportCode")), "classes": ("tab",)}),
         (_("Balance"), {"fields": (("CurrTotal",),), "classes": ("tab",)}),
     )
 
@@ -43,7 +44,7 @@ class OPRCAdmin(_FinanceErpAdmin):
 
     fieldsets = (
         (_("Center"), {"fields": (("PrcCode", "PrcName"),), "classes": ("tab",)}),
-        (_("Dimension & status"), {"fields": (("DimCode", "Active"),), "classes": ("tab",)}),
+        (_("Dimension & status"), {"fields": (("DimCode", "Active", "PrcFather"),), "classes": ("tab",)}),
     )
 
 
@@ -57,10 +58,12 @@ class OJDTAdmin(_FinanceErpAdmin):
         if obj is None:
             return (
                 (_("Document"), {"fields": (("RefDate", "TransType"), "BaseRef"), "classes": ("tab",)}),
+                (_("References & project"), {"fields": (("Ref1", "Ref2"), ("DueDate", "TransCode"), ("Project",)), "classes": ("tab",)}),
                 (_("Memo"), {"fields": (("Memo",),), "classes": ("tab",)}),
             )
         return (
             (_("Document"), {"fields": (("TransId", "RefDate"), ("TransType", "BaseRef")), "classes": ("tab",)}),
+            (_("References & project"), {"fields": (("Ref1", "Ref2"), ("DueDate", "TransCode"), ("Project",)), "classes": ("tab",)}),
             (_("Memo"), {"fields": (("Memo",),), "classes": ("tab",)}),
         )
 
@@ -70,19 +73,23 @@ class OJDTAdmin(_FinanceErpAdmin):
 
 @admin.register(ORCT)
 class ORCTAdmin(_FinanceErpAdmin):
-    list_display = ("DocEntry", "CardCode", "DocDate", "DocTotal", "CashSum")
-    list_filter = ("DocDate",)
+    list_display = ("DocEntry", "CardCode", "DocDate", "DocTotal", "CashSum", "DocStatus")
+    list_filter = ("DocDate", "DocStatus")
     search_fields = ("CardCode", "CardName")
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
             return (
                 (_("Document & BP"), {"fields": (("DocDate", "CardCode"), ("CardName",)), "classes": ("tab",)}),
+                (_("Status & transfer"), {"fields": (("DocStatus", "TrsfrAcct"), ("CheckSum",)), "classes": ("tab",)}),
                 (_("Accounts & amounts"), {"fields": (("CashAcct", "CheckAcct"), ("DocTotal", "CashSum")), "classes": ("tab",)}),
+                (_("Comments & journal"), {"fields": (("Comments",), ("JrnlMemo",)), "classes": ("tab",)}),
             )
         return (
             (_("Document"), {"fields": (("DocEntry", "DocDate"), ("CardCode", "CardName")), "classes": ("tab",)}),
+            (_("Status & transfer"), {"fields": (("DocStatus", "TrsfrAcct"), ("CheckSum",)), "classes": ("tab",)}),
             (_("Accounts & amounts"), {"fields": (("CashAcct", "CheckAcct"), ("DocTotal", "CashSum")), "classes": ("tab",)}),
+            (_("Comments & journal"), {"fields": (("Comments",), ("JrnlMemo",)), "classes": ("tab",)}),
         )
 
     def get_readonly_fields(self, request, obj=None):
@@ -91,19 +98,23 @@ class ORCTAdmin(_FinanceErpAdmin):
 
 @admin.register(OVPM)
 class OVPMAdmin(_FinanceErpAdmin):
-    list_display = ("DocEntry", "CardCode", "DocDate", "DocTotal", "CashSum", "TrsfrSum")
-    list_filter = ("DocDate",)
-    search_fields = ("CardCode", "CardName")
+    list_display = ("DocEntry", "CardCode", "DocDate", "DocTotal", "CashSum", "TrsfrSum", "DocStatus")
+    list_filter = ("DocDate", "DocStatus")
+    search_fields = ("CardCode", "CardName", "Comments")
 
     def get_fieldsets(self, request, obj=None):
         if obj is None:
             return (
                 (_("Document & BP"), {"fields": (("DocDate", "CardCode"), ("CardName",)), "classes": ("tab",)}),
+                (_("Status & transfer"), {"fields": (("DocStatus", "TrsfrAcct"),), "classes": ("tab",)}),
                 (_("Bank & amounts"), {"fields": (("BankAcct",), ("CashSum", "TrsfrSum", "DocTotal")), "classes": ("tab",)}),
+                (_("Comments & journal"), {"fields": (("Comments",), ("JrnlMemo",)), "classes": ("tab",)}),
             )
         return (
             (_("Document"), {"fields": (("DocEntry", "DocDate"), ("CardCode", "CardName")), "classes": ("tab",)}),
+            (_("Status & transfer"), {"fields": (("DocStatus", "TrsfrAcct"),), "classes": ("tab",)}),
             (_("Bank & amounts"), {"fields": (("BankAcct",), ("CashSum", "TrsfrSum", "DocTotal")), "classes": ("tab",)}),
+            (_("Comments & journal"), {"fields": (("Comments",), ("JrnlMemo",)), "classes": ("tab",)}),
         )
 
     def get_readonly_fields(self, request, obj=None):
@@ -112,13 +123,14 @@ class OVPMAdmin(_FinanceErpAdmin):
 
 @admin.register(OSTC)
 class OSTCAdmin(_FinanceErpAdmin):
-    list_display = ("Code", "Name", "Rate", "Account")
+    list_display = ("Code", "Name", "Rate", "Account", "ValidFor", "Frozen")
+    list_filter = ("ValidFor", "Frozen")
     search_fields = ("Code", "Name", "Account")
     ordering = ("Code",)
 
     fieldsets = (
         (_("Tax code"), {"fields": (("Code", "Name", "Rate"),), "classes": ("tab",)}),
-        (_("G/L link"), {"fields": (("Account",),), "classes": ("tab",)}),
+        (_("G/L link & flags"), {"fields": (("Account",), ("ValidFor", "Frozen")), "classes": ("tab",)}),
     )
 
 

@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django_bolt import BoltAPI
@@ -18,6 +19,15 @@ from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
 from django_bolt.views import APIView
 
+from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
+from apps.finance.services.auto_journal import sync_ap_invoice_journal
+from apps.inventory.services import (
+    rebuild_oitw_committed_and_on_order,
+    resync_all_grpo_lines,
+    resync_all_vendor_return_lines,
+    sync_grpo_line_stock,
+    sync_vendor_return_line_stock,
+)
 from apps.purchase.models import OPCH, OPDN, OPOR, OPRQ, ORPC, PCH1, PDN1, POR1, PRQ1, RPC1
 
 from .serializers import (
@@ -65,6 +75,26 @@ from .serializers import (
 
 
 PURCHASE_API_PREFIX = "/api/purchase"
+
+
+async def _bp_recalc_cards(*card_codes: str | None) -> None:
+    for cc in card_codes:
+        s = (cc or "").strip()
+        if s:
+            await sync_to_async(recalculate_bp_rollups)(s)
+
+
+async def _purchase_stock_sync(fn, *args) -> None:
+    try:
+        await sync_to_async(fn)(*args)
+    except ValidationError as exc:
+        msgs = list(getattr(exc, "messages", []))
+        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+        raise BadRequest(detail=detail) from exc
+
+
+async def _rebuild_inv_totals() -> None:
+    await sync_to_async(rebuild_oitw_committed_and_on_order)()
 
 
 class PurchaseRequestCollection(APIView):
@@ -446,6 +476,8 @@ class PurchaseOrderCollection(APIView):
             DocTotal=Decimal(str(data.DocTotal or "0")),
         )
         await header.asave()
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(header.CardCode)
         return PurchaseOrderResponse(
             DocEntry=header.DocEntry,
             DocNum=header.DocNum,
@@ -489,6 +521,7 @@ class PurchaseOrderDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode.strip()
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CardCode is not None:
@@ -510,6 +543,8 @@ class PurchaseOrderDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(old_cc, o.CardCode)
         return PurchaseOrderResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -529,8 +564,11 @@ class PurchaseOrderDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode.strip()
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(old_cc)
         return PurchaseOrderResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -612,6 +650,8 @@ class PurchaseOrderLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(hdr.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -685,6 +725,8 @@ class PurchaseOrderLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(o.header.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -712,6 +754,8 @@ class PurchaseOrderLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _rebuild_inv_totals()
+        await _bp_recalc_cards(o.header.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -840,6 +884,7 @@ class GoodsReceiptDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(resync_all_grpo_lines, int(doc_entry))
         return GoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -860,6 +905,7 @@ class GoodsReceiptDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(resync_all_grpo_lines, int(doc_entry))
         return GoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -940,6 +986,7 @@ class GoodsReceiptLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _purchase_stock_sync(sync_grpo_line_stock, int(line.header_id), int(line.LineNum))
         return GoodsReceiptLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1013,6 +1060,7 @@ class GoodsReceiptLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(sync_grpo_line_stock, int(doc_entry), int(line_num))
         return GoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1040,6 +1088,7 @@ class GoodsReceiptLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(sync_grpo_line_stock, int(doc_entry), int(line_num))
         return GoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1150,12 +1199,18 @@ class VendorReturnDetail(APIView):
             o.CardName = data.CardName.strip()
         if data.DocDate is not None:
             o.DocDate = data.DocDate
+        if data.DocStatus is not None:
+            st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+            if st not in ("O", "C"):
+                raise BadRequest(detail="DocStatus must be O or C.")
+            o.DocStatus = st
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(resync_all_vendor_return_lines, int(doc_entry))
         return VendorReturnResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1175,6 +1230,7 @@ class VendorReturnDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(resync_all_vendor_return_lines, int(doc_entry))
         return VendorReturnResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1254,6 +1310,7 @@ class VendorReturnLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _purchase_stock_sync(sync_vendor_return_line_stock, int(line.header_id), int(line.LineNum))
         return VendorReturnLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1327,6 +1384,7 @@ class VendorReturnLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
         return VendorReturnLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1354,6 +1412,7 @@ class VendorReturnLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
         return VendorReturnLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1421,6 +1480,7 @@ class ApInvoiceCollection(APIView):
             VatSum=Decimal(str(data.VatSum or "0")),
         )
         await header.asave()
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(header.DocEntry))
         return ApInvoiceResponse(
             DocEntry=header.DocEntry,
             DocNum=header.DocNum,
@@ -1482,6 +1542,7 @@ class ApInvoiceDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1503,6 +1564,7 @@ class ApInvoiceDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1582,6 +1644,7 @@ class ApInvoiceLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(line.header_id))
         return ApInvoiceLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1651,6 +1714,7 @@ class ApInvoiceLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1677,6 +1741,7 @@ class ApInvoiceLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,

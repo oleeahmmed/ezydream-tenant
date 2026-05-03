@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Any
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django_bolt import BoltAPI
@@ -18,6 +19,15 @@ from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
 from django_bolt.views import APIView
 
+from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
+from apps.finance.services.auto_journal import sync_ar_invoice_journal
+from apps.inventory.services import (
+    rebuild_oitw_committed_and_on_order,
+    resync_all_delivery_lines,
+    resync_all_return_lines,
+    sync_delivery_line_stock,
+    sync_return_line_stock,
+)
 from apps.sales.models import DLN1, INV1, ODLN, OINV, OQUT, ORDN, ORDR, QUT1, RDN1, RDR1
 
 from .serializers import (
@@ -65,6 +75,28 @@ from .serializers import (
 
 
 SALES_API_PREFIX = "/api/sales"
+
+
+async def _sales_stock_sync_exc(fn, *args) -> None:
+    try:
+        await sync_to_async(fn)(*args)
+    except ValidationError as exc:
+        msgs = list(getattr(exc, "messages", []))
+        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+        raise BadRequest(detail=detail) from exc
+
+
+async def _bp_recalc_cards(*card_codes: str | None) -> None:
+    seen: set[str] = set()
+    for raw in card_codes:
+        cc = (raw or "").strip()
+        if cc and cc not in seen:
+            seen.add(cc)
+            await sync_to_async(recalculate_bp_rollups)(cc)
+
+
+async def _rebuild_so_po_totals() -> None:
+    await sync_to_async(rebuild_oitw_committed_and_on_order)()
 
 
 def _sales_order_response(o: ORDR) -> SalesOrderResponse:
@@ -589,6 +621,8 @@ class SalesOrderCollection(APIView):
             OwnerCode=(data.OwnerCode or "").strip()[:50],
         )
         await header.asave()
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(header.CardCode)
         return _sales_order_response(header)
 
 
@@ -614,6 +648,7 @@ class SalesOrderDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CardCode is not None:
@@ -655,6 +690,8 @@ class SalesOrderDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(old_cc, o.CardCode)
         return _sales_order_response(o)
 
     async def delete(self, doc_entry: int) -> SalesOrderResponse:
@@ -665,8 +702,11 @@ class SalesOrderDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(old_cc)
         return _sales_order_response(o)
 
 
@@ -727,6 +767,8 @@ class SalesOrderLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(hdr.CardCode)
         return _sales_order_line_response(line)
 
 
@@ -782,6 +824,8 @@ class SalesOrderLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(o.header.CardCode)
         return _sales_order_line_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> SalesOrderLineResponse:
@@ -798,6 +842,8 @@ class SalesOrderLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _rebuild_so_po_totals()
+        await _bp_recalc_cards(o.header.CardCode)
         return _sales_order_line_response(o)
 
 
@@ -827,37 +873,36 @@ class DeliveryNoteCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return DeliveryNotePage(
-            items=[
-                DeliveryNoteResponse(
-                    DocEntry=o.DocEntry,
-                    DocNum=o.DocNum,
-                    CardCode=o.CardCode,
-                    CardName=o.CardName or "",
-                    DocDate=o.DocDate,
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_delivery_note_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
 
     async def post(self, data: DeliveryNoteCreateBody) -> DeliveryNoteResponse:
+        st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+        if st not in ("O", "C"):
+            raise BadRequest(detail="DocStatus must be O or C.")
         header = ODLN(
             DocNum=data.DocNum,
             CardCode=data.CardCode.strip(),
             CardName=(data.CardName or "").strip(),
+            NumAtCard=(data.NumAtCard or "").strip(),
+            CntctPrsn=(data.CntctPrsn or "").strip(),
+            DocCur=(data.DocCur or "").strip()[:15],
+            DocStatus=st,
             DocDate=data.DocDate,
+            DocDueDate=data.DocDueDate,
+            TaxDate=data.TaxDate,
+            DocTotal=Decimal(str(data.DocTotal or "0")),
+            VatSum=Decimal(str(data.VatSum or "0")),
+            DiscSum=Decimal(str(data.DiscSum or "0")),
+            Comments=(data.Comments or "").strip(),
+            SlpCode=data.SlpCode,
+            OwnerCode=(data.OwnerCode or "").strip()[:50],
         )
         await header.asave()
-        return DeliveryNoteResponse(
-            DocEntry=header.DocEntry,
-            DocNum=header.DocNum,
-            CardCode=header.CardCode,
-            CardName=header.CardName or "",
-            DocDate=header.DocDate,
-            Canceled=header.Canceled,
-        )
+        await _bp_recalc_cards(header.CardCode)
+        return _delivery_note_response(header)
 
 
 class DeliveryNoteDetail(APIView):
@@ -872,14 +917,7 @@ class DeliveryNoteDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return DeliveryNoteResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            Canceled=o.Canceled,
-        )
+        return _delivery_note_response(o)
 
     async def patch(self, doc_entry: int, data: DeliveryNotePatchBody) -> DeliveryNoteResponse:
         try:
@@ -889,28 +927,51 @@ class DeliveryNoteDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CardCode is not None:
             o.CardCode = data.CardCode.strip()
         if data.CardName is not None:
             o.CardName = data.CardName.strip()
+        if data.NumAtCard is not None:
+            o.NumAtCard = data.NumAtCard.strip()
+        if data.CntctPrsn is not None:
+            o.CntctPrsn = data.CntctPrsn.strip()
+        if data.DocCur is not None:
+            o.DocCur = data.DocCur.strip()[:15]
+        if data.DocStatus is not None:
+            st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+            if st not in ("O", "C"):
+                raise BadRequest(detail="DocStatus must be O or C.")
+            o.DocStatus = st
         if data.DocDate is not None:
             o.DocDate = data.DocDate
+        if data.DocDueDate is not None:
+            o.DocDueDate = data.DocDueDate
+        if data.TaxDate is not None:
+            o.TaxDate = data.TaxDate
+        if data.DocTotal is not None:
+            o.DocTotal = Decimal(str(data.DocTotal))
+        if data.VatSum is not None:
+            o.VatSum = Decimal(str(data.VatSum))
+        if data.DiscSum is not None:
+            o.DiscSum = Decimal(str(data.DiscSum))
+        if data.Comments is not None:
+            o.Comments = data.Comments.strip()
+        if data.SlpCode is not None:
+            o.SlpCode = data.SlpCode
+        if data.OwnerCode is not None:
+            o.OwnerCode = data.OwnerCode.strip()[:50]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return DeliveryNoteResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(resync_all_delivery_lines, doc_entry)
+        await _bp_recalc_cards(old_cc, o.CardCode)
+        return _delivery_note_response(o)
 
     async def delete(self, doc_entry: int) -> DeliveryNoteResponse:
         try:
@@ -920,16 +981,12 @@ class DeliveryNoteDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return DeliveryNoteResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(resync_all_delivery_lines, doc_entry)
+        await _bp_recalc_cards(old_cc)
+        return _delivery_note_response(o)
 
 
 class DeliveryLineCollection(APIView):
@@ -961,20 +1018,7 @@ class DeliveryLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return DeliveryLinePage(
-            items=[
-                DeliveryLineResponse(
-                    DocEntry=o.header_id,
-                    LineNum=o.LineNum,
-                    ItemCode=o.ItemCode,
-                    Quantity=str(o.Quantity),
-                    WhsCode=o.WhsCode,
-                    BaseType=o.BaseType,
-                    BaseEntry=o.BaseEntry,
-                    BaseLine=o.BaseLine,
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_delivery_line_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -989,7 +1033,11 @@ class DeliveryLineCollection(APIView):
             header_id=data.DocEntry,
             LineNum=int(data.LineNum),
             ItemCode=data.ItemCode.strip(),
+            Dscription=(data.Dscription or "").strip(),
             Quantity=Decimal(str(data.Quantity)),
+            Price=Decimal(str(data.Price or "0")),
+            DiscPrcnt=Decimal(str(data.DiscPrcnt or "0")),
+            LineTotal=Decimal(str(data.LineTotal or "0")),
             WhsCode=data.WhsCode.strip(),
             BaseType=data.BaseType,
             BaseEntry=data.BaseEntry,
@@ -999,17 +1047,11 @@ class DeliveryLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        return DeliveryLineResponse(
-            DocEntry=line.header_id,
-            LineNum=line.LineNum,
-            ItemCode=line.ItemCode,
-            Quantity=str(line.Quantity),
-            WhsCode=line.WhsCode,
-            BaseType=line.BaseType,
-            BaseEntry=line.BaseEntry,
-            BaseLine=line.BaseLine,
-            Canceled=line.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_delivery_line_stock, line.header_id, int(line.LineNum))
+        hdr = await ODLN.objects.filter(pk=line.header_id).afirst()
+        if hdr:
+            await _bp_recalc_cards(hdr.CardCode)
+        return _delivery_line_response(line)
 
 
 class DeliveryLineDetail(APIView):
@@ -1026,17 +1068,7 @@ class DeliveryLineDetail(APIView):
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return DeliveryLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            BaseLine=o.BaseLine,
-            Canceled=o.Canceled,
-        )
+        return _delivery_line_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: DeliveryLinePatchBody) -> DeliveryLineResponse:
         try:
@@ -1052,8 +1084,16 @@ class DeliveryLineDetail(APIView):
             raise BadRequest(detail="Cannot edit lines of a canceled document.")
         if data.ItemCode is not None:
             o.ItemCode = data.ItemCode.strip()
+        if data.Dscription is not None:
+            o.Dscription = data.Dscription.strip()
         if data.Quantity is not None:
             o.Quantity = Decimal(str(data.Quantity))
+        if data.Price is not None:
+            o.Price = Decimal(str(data.Price))
+        if data.DiscPrcnt is not None:
+            o.DiscPrcnt = Decimal(str(data.DiscPrcnt))
+        if data.LineTotal is not None:
+            o.LineTotal = Decimal(str(data.LineTotal))
         if data.WhsCode is not None:
             o.WhsCode = data.WhsCode.strip()
         if data.BaseType is not None:
@@ -1068,17 +1108,9 @@ class DeliveryLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return DeliveryLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            BaseLine=o.BaseLine,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_delivery_line_stock, doc_entry, int(line_num))
+        await _bp_recalc_cards(o.header.CardCode)
+        return _delivery_line_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> DeliveryLineResponse:
         try:
@@ -1094,17 +1126,9 @@ class DeliveryLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return DeliveryLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            BaseLine=o.BaseLine,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_delivery_line_stock, doc_entry, int(line_num))
+        await _bp_recalc_cards(o.header.CardCode)
+        return _delivery_line_response(o)
 
 
 class CustomerReturnCollection(APIView):
@@ -1133,34 +1157,36 @@ class CustomerReturnCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return CustomerReturnPage(
-            items=[
-                CustomerReturnResponse(
-                    DocEntry=o.DocEntry,
-                    DocNum=o.DocNum,
-                    CardCode=o.CardCode,
-                    CardName=o.CardName or "",
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_customer_return_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
 
     async def post(self, data: CustomerReturnCreateBody) -> CustomerReturnResponse:
+        st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+        if st not in ("O", "C"):
+            raise BadRequest(detail="DocStatus must be O or C.")
         header = ORDN(
             DocNum=data.DocNum,
             CardCode=data.CardCode.strip(),
             CardName=(data.CardName or "").strip(),
+            NumAtCard=(data.NumAtCard or "").strip(),
+            CntctPrsn=(data.CntctPrsn or "").strip(),
+            DocCur=(data.DocCur or "").strip()[:15],
+            DocStatus=st,
+            DocDate=data.DocDate,
+            DocDueDate=data.DocDueDate,
+            TaxDate=data.TaxDate,
+            DocTotal=Decimal(str(data.DocTotal or "0")),
+            VatSum=Decimal(str(data.VatSum or "0")),
+            DiscSum=Decimal(str(data.DiscSum or "0")),
+            Comments=(data.Comments or "").strip(),
+            SlpCode=data.SlpCode,
+            OwnerCode=(data.OwnerCode or "").strip()[:50],
         )
         await header.asave()
-        return CustomerReturnResponse(
-            DocEntry=header.DocEntry,
-            DocNum=header.DocNum,
-            CardCode=header.CardCode,
-            CardName=header.CardName or "",
-            Canceled=header.Canceled,
-        )
+        await _bp_recalc_cards(header.CardCode)
+        return _customer_return_response(header)
 
 
 class CustomerReturnDetail(APIView):
@@ -1175,13 +1201,7 @@ class CustomerReturnDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return CustomerReturnResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            Canceled=o.Canceled,
-        )
+        return _customer_return_response(o)
 
     async def patch(self, doc_entry: int, data: CustomerReturnPatchBody) -> CustomerReturnResponse:
         try:
@@ -1191,25 +1211,51 @@ class CustomerReturnDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CardCode is not None:
             o.CardCode = data.CardCode.strip()
         if data.CardName is not None:
             o.CardName = data.CardName.strip()
+        if data.NumAtCard is not None:
+            o.NumAtCard = data.NumAtCard.strip()
+        if data.CntctPrsn is not None:
+            o.CntctPrsn = data.CntctPrsn.strip()
+        if data.DocCur is not None:
+            o.DocCur = data.DocCur.strip()[:15]
+        if data.DocStatus is not None:
+            st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+            if st not in ("O", "C"):
+                raise BadRequest(detail="DocStatus must be O or C.")
+            o.DocStatus = st
+        if data.DocDate is not None:
+            o.DocDate = data.DocDate
+        if data.DocDueDate is not None:
+            o.DocDueDate = data.DocDueDate
+        if data.TaxDate is not None:
+            o.TaxDate = data.TaxDate
+        if data.DocTotal is not None:
+            o.DocTotal = Decimal(str(data.DocTotal))
+        if data.VatSum is not None:
+            o.VatSum = Decimal(str(data.VatSum))
+        if data.DiscSum is not None:
+            o.DiscSum = Decimal(str(data.DiscSum))
+        if data.Comments is not None:
+            o.Comments = data.Comments.strip()
+        if data.SlpCode is not None:
+            o.SlpCode = data.SlpCode
+        if data.OwnerCode is not None:
+            o.OwnerCode = data.OwnerCode.strip()[:50]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return CustomerReturnResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(resync_all_return_lines, doc_entry)
+        await _bp_recalc_cards(old_cc, o.CardCode)
+        return _customer_return_response(o)
 
     async def delete(self, doc_entry: int) -> CustomerReturnResponse:
         try:
@@ -1219,15 +1265,12 @@ class CustomerReturnDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return CustomerReturnResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(resync_all_return_lines, doc_entry)
+        await _bp_recalc_cards(old_cc)
+        return _customer_return_response(o)
 
 
 class CustomerReturnLineCollection(APIView):
@@ -1259,18 +1302,7 @@ class CustomerReturnLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return CustomerReturnLinePage(
-            items=[
-                CustomerReturnLineResponse(
-                    DocEntry=o.header_id,
-                    LineNum=o.LineNum,
-                    ItemCode=o.ItemCode,
-                    Quantity=str(o.Quantity),
-                    WhsCode=o.WhsCode,
-                    BaseEntry=o.BaseEntry,
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_customer_return_line_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1285,23 +1317,25 @@ class CustomerReturnLineCollection(APIView):
             header_id=data.DocEntry,
             LineNum=int(data.LineNum),
             ItemCode=data.ItemCode.strip(),
+            Dscription=(data.Dscription or "").strip(),
             Quantity=Decimal(str(data.Quantity)),
+            Price=Decimal(str(data.Price or "0")),
+            DiscPrcnt=Decimal(str(data.DiscPrcnt or "0")),
+            LineTotal=Decimal(str(data.LineTotal or "0")),
             WhsCode=data.WhsCode.strip(),
+            BaseType=data.BaseType,
             BaseEntry=data.BaseEntry,
+            BaseLine=data.BaseLine,
         )
         try:
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        return CustomerReturnLineResponse(
-            DocEntry=line.header_id,
-            LineNum=line.LineNum,
-            ItemCode=line.ItemCode,
-            Quantity=str(line.Quantity),
-            WhsCode=line.WhsCode,
-            BaseEntry=line.BaseEntry,
-            Canceled=line.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_return_line_stock, line.header_id, int(line.LineNum))
+        hdr = await ORDN.objects.filter(pk=line.header_id).afirst()
+        if hdr:
+            await _bp_recalc_cards(hdr.CardCode)
+        return _customer_return_line_response(line)
 
 
 class CustomerReturnLineDetail(APIView):
@@ -1318,15 +1352,7 @@ class CustomerReturnLineDetail(APIView):
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return CustomerReturnLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        return _customer_return_line_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: CustomerReturnLinePatchBody) -> CustomerReturnLineResponse:
         try:
@@ -1342,27 +1368,33 @@ class CustomerReturnLineDetail(APIView):
             raise BadRequest(detail="Cannot edit lines of a canceled document.")
         if data.ItemCode is not None:
             o.ItemCode = data.ItemCode.strip()
+        if data.Dscription is not None:
+            o.Dscription = data.Dscription.strip()
         if data.Quantity is not None:
             o.Quantity = Decimal(str(data.Quantity))
+        if data.Price is not None:
+            o.Price = Decimal(str(data.Price))
+        if data.DiscPrcnt is not None:
+            o.DiscPrcnt = Decimal(str(data.DiscPrcnt))
+        if data.LineTotal is not None:
+            o.LineTotal = Decimal(str(data.LineTotal))
         if data.WhsCode is not None:
             o.WhsCode = data.WhsCode.strip()
+        if data.BaseType is not None:
+            o.BaseType = data.BaseType
         if data.BaseEntry is not None:
             o.BaseEntry = data.BaseEntry
+        if data.BaseLine is not None:
+            o.BaseLine = data.BaseLine
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return CustomerReturnLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_return_line_stock, doc_entry, int(line_num))
+        await _bp_recalc_cards(o.header.CardCode)
+        return _customer_return_line_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> CustomerReturnLineResponse:
         try:
@@ -1378,15 +1410,9 @@ class CustomerReturnLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return CustomerReturnLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            WhsCode=o.WhsCode,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        await _sales_stock_sync_exc(sync_return_line_stock, doc_entry, int(line_num))
+        await _bp_recalc_cards(o.header.CardCode)
+        return _customer_return_line_response(o)
 
 
 class SalesInvoiceCollection(APIView):
@@ -1415,19 +1441,7 @@ class SalesInvoiceCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesInvoicePage(
-            items=[
-                SalesInvoiceResponse(
-                    DocEntry=o.DocEntry,
-                    DocNum=o.DocNum,
-                    CardCode=o.CardCode,
-                    CardName=o.CardName or "",
-                    DocDate=o.DocDate,
-                    DocTotal=str(o.DocTotal),
-                    VatSum=str(o.VatSum),
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_sales_invoice_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1437,21 +1451,23 @@ class SalesInvoiceCollection(APIView):
             DocNum=data.DocNum,
             CardCode=data.CardCode.strip(),
             CardName=(data.CardName or "").strip(),
+            NumAtCard=(data.NumAtCard or "").strip(),
+            CntctPrsn=(data.CntctPrsn or "").strip(),
+            DocCur=(data.DocCur or "").strip()[:15],
             DocDate=data.DocDate,
+            DocDueDate=data.DocDueDate,
+            TaxDate=data.TaxDate,
             DocTotal=Decimal(str(data.DocTotal or "0")),
             VatSum=Decimal(str(data.VatSum or "0")),
+            DiscSum=Decimal(str(data.DiscSum or "0")),
+            Comments=(data.Comments or "").strip(),
+            SlpCode=data.SlpCode,
+            OwnerCode=(data.OwnerCode or "").strip()[:50],
         )
         await header.asave()
-        return SalesInvoiceResponse(
-            DocEntry=header.DocEntry,
-            DocNum=header.DocNum,
-            CardCode=header.CardCode,
-            CardName=header.CardName or "",
-            DocDate=header.DocDate,
-            DocTotal=str(header.DocTotal),
-            VatSum=str(header.VatSum),
-            Canceled=header.Canceled,
-        )
+        await _bp_recalc_cards(header.CardCode)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(header.DocEntry))
+        return _sales_invoice_response(header)
 
 
 class SalesInvoiceDetail(APIView):
@@ -1466,16 +1482,7 @@ class SalesInvoiceDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return SalesInvoiceResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            DocTotal=str(o.DocTotal),
-            VatSum=str(o.VatSum),
-            Canceled=o.Canceled,
-        )
+        return _sales_invoice_response(o)
 
     async def patch(self, doc_entry: int, data: SalesInvoicePatchBody) -> SalesInvoiceResponse:
         try:
@@ -1485,34 +1492,46 @@ class SalesInvoiceDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CardCode is not None:
             o.CardCode = data.CardCode.strip()
         if data.CardName is not None:
             o.CardName = data.CardName.strip()
+        if data.NumAtCard is not None:
+            o.NumAtCard = data.NumAtCard.strip()
+        if data.CntctPrsn is not None:
+            o.CntctPrsn = data.CntctPrsn.strip()
+        if data.DocCur is not None:
+            o.DocCur = data.DocCur.strip()[:15]
         if data.DocDate is not None:
             o.DocDate = data.DocDate
+        if data.DocDueDate is not None:
+            o.DocDueDate = data.DocDueDate
+        if data.TaxDate is not None:
+            o.TaxDate = data.TaxDate
         if data.DocTotal is not None:
             o.DocTotal = Decimal(str(data.DocTotal))
         if data.VatSum is not None:
             o.VatSum = Decimal(str(data.VatSum))
+        if data.DiscSum is not None:
+            o.DiscSum = Decimal(str(data.DiscSum))
+        if data.Comments is not None:
+            o.Comments = data.Comments.strip()
+        if data.SlpCode is not None:
+            o.SlpCode = data.SlpCode
+        if data.OwnerCode is not None:
+            o.OwnerCode = data.OwnerCode.strip()[:50]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return SalesInvoiceResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            DocTotal=str(o.DocTotal),
-            VatSum=str(o.VatSum),
-            Canceled=o.Canceled,
-        )
+        await _bp_recalc_cards(old_cc, o.CardCode)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
+        return _sales_invoice_response(o)
 
     async def delete(self, doc_entry: int) -> SalesInvoiceResponse:
         try:
@@ -1522,18 +1541,12 @@ class SalesInvoiceDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return SalesInvoiceResponse(
-            DocEntry=o.DocEntry,
-            DocNum=o.DocNum,
-            CardCode=o.CardCode,
-            CardName=o.CardName or "",
-            DocDate=o.DocDate,
-            DocTotal=str(o.DocTotal),
-            VatSum=str(o.VatSum),
-            Canceled=o.Canceled,
-        )
+        await _bp_recalc_cards(old_cc)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
+        return _sales_invoice_response(o)
 
 
 class SalesInvoiceLineCollection(APIView):
@@ -1565,20 +1578,7 @@ class SalesInvoiceLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesInvoiceLinePage(
-            items=[
-                SalesInvoiceLineResponse(
-                    DocEntry=o.header_id,
-                    LineNum=o.LineNum,
-                    ItemCode=o.ItemCode,
-                    Quantity=str(o.Quantity),
-                    Price=str(o.Price),
-                    LineTotal=str(o.LineTotal),
-                    BaseType=o.BaseType,
-                    BaseEntry=o.BaseEntry,
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_sales_invoice_line_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1593,27 +1593,23 @@ class SalesInvoiceLineCollection(APIView):
             header_id=data.DocEntry,
             LineNum=int(data.LineNum),
             ItemCode=data.ItemCode.strip(),
+            Dscription=(data.Dscription or "").strip(),
             Quantity=Decimal(str(data.Quantity)),
             Price=Decimal(str(data.Price or "0")),
+            DiscPrcnt=Decimal(str(data.DiscPrcnt or "0")),
             LineTotal=Decimal(str(data.LineTotal or "0")),
+            WhsCode=(data.WhsCode or "").strip(),
             BaseType=data.BaseType,
             BaseEntry=data.BaseEntry,
+            BaseLine=data.BaseLine,
         )
         try:
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        return SalesInvoiceLineResponse(
-            DocEntry=line.header_id,
-            LineNum=line.LineNum,
-            ItemCode=line.ItemCode,
-            Quantity=str(line.Quantity),
-            Price=str(line.Price),
-            LineTotal=str(line.LineTotal),
-            BaseType=line.BaseType,
-            BaseEntry=line.BaseEntry,
-            Canceled=line.Canceled,
-        )
+        await _bp_recalc_cards(hdr.CardCode)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(hdr.DocEntry))
+        return _sales_invoice_line_response(line)
 
 
 class SalesInvoiceLineDetail(APIView):
@@ -1630,17 +1626,7 @@ class SalesInvoiceLineDetail(APIView):
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return SalesInvoiceLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            Price=str(o.Price),
-            LineTotal=str(o.LineTotal),
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        return _sales_invoice_line_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: SalesInvoiceLinePatchBody) -> SalesInvoiceLineResponse:
         try:
@@ -1656,33 +1642,33 @@ class SalesInvoiceLineDetail(APIView):
             raise BadRequest(detail="Cannot edit lines of a canceled document.")
         if data.ItemCode is not None:
             o.ItemCode = data.ItemCode.strip()
+        if data.Dscription is not None:
+            o.Dscription = data.Dscription.strip()
         if data.Quantity is not None:
             o.Quantity = Decimal(str(data.Quantity))
         if data.Price is not None:
             o.Price = Decimal(str(data.Price))
+        if data.DiscPrcnt is not None:
+            o.DiscPrcnt = Decimal(str(data.DiscPrcnt))
         if data.LineTotal is not None:
             o.LineTotal = Decimal(str(data.LineTotal))
+        if data.WhsCode is not None:
+            o.WhsCode = data.WhsCode.strip()
         if data.BaseType is not None:
             o.BaseType = data.BaseType
         if data.BaseEntry is not None:
             o.BaseEntry = data.BaseEntry
+        if data.BaseLine is not None:
+            o.BaseLine = data.BaseLine
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return SalesInvoiceLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            Price=str(o.Price),
-            LineTotal=str(o.LineTotal),
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        await _bp_recalc_cards(o.header.CardCode)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
+        return _sales_invoice_line_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> SalesInvoiceLineResponse:
         try:
@@ -1698,17 +1684,9 @@ class SalesInvoiceLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return SalesInvoiceLineResponse(
-            DocEntry=o.header_id,
-            LineNum=o.LineNum,
-            ItemCode=o.ItemCode,
-            Quantity=str(o.Quantity),
-            Price=str(o.Price),
-            LineTotal=str(o.LineTotal),
-            BaseType=o.BaseType,
-            BaseEntry=o.BaseEntry,
-            Canceled=o.Canceled,
-        )
+        await _bp_recalc_cards(o.header.CardCode)
+        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
+        return _sales_invoice_line_response(o)
 
 
 def attach_sales_routes(api: BoltAPI) -> None:

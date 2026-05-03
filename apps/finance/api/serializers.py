@@ -170,6 +170,7 @@ class IncomingPaymentPatchBody(Serializer):
     CheckAcct: str | None = field(default=None)
     DocTotal: str | None = field(default=None)
     CashSum: str | None = field(default=None)
+    DocStatus: str | None = field(default=None)
 
 
 class IncomingPaymentLineResponse(Serializer):
@@ -235,6 +236,7 @@ class OutgoingPaymentPatchBody(Serializer):
     CashSum: str | None = field(default=None)
     TrsfrSum: str | None = field(default=None)
     DocTotal: str | None = field(default=None)
+    DocStatus: str | None = field(default=None)
 
 
 class OutgoingPaymentLineResponse(Serializer):

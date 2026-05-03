@@ -15,12 +15,37 @@ class OWHSAdmin(ErpModelAdmin):
     class Media:
         js = ("admin/js/core/erp_ac_common.js", "admin/js/erp_warehouse_admin.js")
 
-    list_display = ("WhsCode", "WhsName", "Location", "Inactive")
-    list_filter = ("Inactive",)
-    search_fields = ("WhsCode", "WhsName", "Location")
+    list_display = ("WhsCode", "WhsName", "City", "Country", "Inactive", "Locked", "DropShip", "BinActivat")
+    list_filter = ("Inactive", "Locked", "DropShip", "BinActivat", "Country")
+    search_fields = (
+        "WhsCode",
+        "WhsName",
+        "Location",
+        "City",
+        "Street",
+        "StreetNo",
+        "ZipCode",
+        "E_Mail",
+        "FederalTaxID",
+    )
     ordering = ("WhsCode",)
 
     fieldsets = (
         (_("Identification"), {"fields": (("WhsCode", "WhsName"),), "classes": ("tab",)}),
-        (_("Location & status"), {"fields": (("Location", "Inactive"),), "classes": ("tab",)}),
+        (
+            _("Address"),
+            {
+                "fields": (
+                    ("Street", "StreetNo", "Building", "Block"),
+                    ("ZipCode", "City", "County"),
+                    ("State", "Country"),
+                ),
+                "classes": ("tab",),
+            },
+        ),
+        (_("Contact"), {"fields": (("Phone1", "Phone2"), ("Fax", "E_Mail"), ("FederalTaxID",)), "classes": ("tab",)}),
+        (
+            _("Location & status"),
+            {"fields": (("Location",), ("Inactive", "Locked", "DropShip", "BinActivat")), "classes": ("tab",)},
+        ),
     )

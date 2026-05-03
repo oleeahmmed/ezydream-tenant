@@ -1,0 +1,2702 @@
+<!DOCTYPE html>
+<!-- saved from url=(0063)https://flat-fire-7098.preview.animaapp.io/?v=1777663210.991276 -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>
+   Sales Order – SAP Business One
+  </title>
+  <script src="./sap2_files/saved_resource">
+  </script>
+  <style>
+   * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        font-size: 11px;
+        background: #c8c8c8;
+        color: #000;
+        min-height: 100vh;
+        padding: 0;
+      }
+
+      /* ── Window Chrome ── */
+      .sap-window {
+        background: #f0f0f0;
+        border: 1px solid #888;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .sap-titlebar {
+        background: linear-gradient(180deg, #4a90c8 0%, #2d6ea0 100%);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 5px 10px 5px 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        user-select: none;
+        flex-shrink: 0;
+      }
+      .titlebar-btns { display: flex; gap: 2px; }
+      .tb-btn {
+        width: 20px; height: 18px;
+        background: #5a9dd0;
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 2px;
+        color: #fff;
+        font-size: 10px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+      }
+      .tb-btn:hover { background: #3a7db0; }
+      .tb-btn.close-btn:hover { background: #c0392b; }
+
+      /* ── Header Section ── */
+      .sap-header {
+        background: #f0f0f0;
+        padding: 8px 12px 4px 12px;
+        border-bottom: 1px solid #bbb;
+      }
+      .header-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 24px;
+      }
+      .field-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 3px;
+        gap: 0;
+      }
+      .field-label {
+        font-size: 11px;
+        color: #222;
+        white-space: nowrap;
+        min-width: 110px;
+        flex-shrink: 0;
+      }
+      .field-input {
+        border: 1px solid #bbb;
+        background: #fff;
+        height: 20px;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 0 4px;
+        outline: none;
+        min-width: 0;
+      }
+      .field-input:focus { border-color: #4a90c8; box-shadow: 0 0 0 1px #4a90c870; }
+      .field-input.readonly { background: #e8e8e8; color: #444; }
+      .field-input-sm { width: 60px; }
+      .field-input-md { width: 120px; }
+      .field-input-lg { width: 200px; }
+      .field-input-full { flex: 1; }
+      .link-arrow {
+        width: 20px; height: 20px;
+        background: #e0e8f4;
+        border: 1px solid #bbb;
+        border-right: none;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer;
+        color: #e67c00;
+        font-size: 12px;
+        font-weight: bold;
+        flex-shrink: 0;
+      }
+      .link-arrow:hover { background: #c8d8f0; }
+      .link-arrow.orange { color: #e67c00; }
+      /* Input that sits immediately after a link-arrow loses its left border to merge flush */
+      .link-arrow + .field-input { border-left: none; }
+      .combo-arrow {
+        width: 18px; height: 20px;
+        background: #e4e4e4;
+        border: 1px solid #bbb;
+        border-left: none;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 9px; flex-shrink: 0;
+      }
+      .edit-btn {
+        width: 20px; height: 20px;
+        background: #e4e4e4;
+        border: 1px solid #bbb;
+        border-left: none;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 10px; flex-shrink: 0;
+        color: #555;
+      }
+      .field-select {
+        border: 1px solid #bbb;
+        background: #fff;
+        height: 20px;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 0 2px;
+        outline: none;
+        cursor: pointer;
+      }
+      .field-select:focus { border-color: #4a90c8; }
+
+      /* ── Tabs ── */
+      .sap-tabs-bar {
+        display: flex;
+        background: #e0e0e0;
+        border-bottom: 2px solid #4a90c8;
+        padding: 0 12px;
+        gap: 0;
+        flex-shrink: 0;
+      }
+      .sap-tab {
+        padding: 5px 18px;
+        font-size: 11px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-bottom: none;
+        background: transparent;
+        color: #444;
+        position: relative;
+        bottom: -2px;
+        border-radius: 3px 3px 0 0;
+        white-space: nowrap;
+        user-select: none;
+      }
+      .sap-tab:hover { background: #d0d8e8; color: #000; }
+      .sap-tab.active {
+        background: #f0f0f0;
+        border-color: #4a90c8;
+        border-bottom-color: #f0f0f0;
+        color: #000;
+        font-weight: 600;
+        z-index: 2;
+      }
+
+      /* ── Tab Panels ── */
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      /* ── Contents Tab ── */
+      .contents-controls {
+        display: flex;
+        align-items: center;
+        padding: 5px 12px;
+        gap: 16px;
+        background: #f0f0f0;
+        border-bottom: 1px solid #ddd;
+      }
+
+      /* ── Grid ── */
+      .grid-wrap {
+        overflow: auto;
+        border: 1px solid #bbb;
+        margin: 0 12px;
+        background: #fff;
+        flex: 1;
+      }
+      .sap-table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 800px;
+        table-layout: fixed;
+      }
+      .sap-table thead th {
+        background: linear-gradient(180deg, #e8e8e8 0%, #d8d8d8 100%);
+        border-right: 1px solid #bbb;
+        border-bottom: 2px solid #aaa;
+        padding: 2px 4px;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        text-align: left;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      .sap-table tbody td {
+        border-right: 1px solid #e0e0e0;
+        border-bottom: 1px solid #e8e8e8;
+        padding: 1px 4px;
+        font-size: 11px;
+        height: 20px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .sap-table tbody tr:hover td { background: #ddeeff; }
+      .sap-table tbody tr.selected td { background: #b8d4f0; }
+      .row-num { color: #888; text-align: center; width: 28px; }
+      .cell-input {
+        width: 100%; height: 100%; border: none; background: transparent;
+        font-size: 11px; font-family: inherit; outline: none; padding: 0 2px;
+      }
+      .cell-input:focus { background: #fff; border: 1px solid #4a90c8; }
+      .cell-blue { color: #0054a6; cursor: pointer; }
+      .cell-blue:hover { text-decoration: underline; }
+
+      /* ── Footer ── */
+      .sap-footer {
+        background: #f0f0f0;
+        border-top: 1px solid #bbb;
+        padding: 6px 12px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: start;
+        flex-shrink: 0;
+      }
+      .totals-table td { padding: 2px 4px; font-size: 11px; white-space: nowrap; }
+      .total-label { text-align: right; min-width: 130px; }
+      .total-input {
+        border: 1px solid #bbb;
+        background: #e8e8e8;
+        height: 20px;
+        text-align: right;
+        padding: 0 4px;
+        font-size: 11px;
+        font-family: inherit;
+        width: 130px;
+        outline: none;
+      }
+      .total-input.editable { background: #fff; }
+      .total-row-bold { font-weight: 600; }
+
+      /* ── Action Bar ── */
+      .sap-actionbar {
+        background: #e8e8e8;
+        border-top: 1px solid #bbb;
+        padding: 4px 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .nav-btn {
+        width: 22px; height: 20px;
+        background: #f4f4f4;
+        border: 1px solid #bbb;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 9px; color: #333; border-radius: 2px;
+        user-select: none;
+      }
+      .nav-btn:hover { background: #dde8f4; }
+      .sap-btn {
+        background: linear-gradient(180deg, #f4f4f4 0%, #e0e0e0 100%);
+        border: 1px solid #aaa;
+        padding: 2px 14px;
+        font-size: 11px;
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: 2px;
+        height: 22px;
+      }
+      .sap-btn:hover { background: linear-gradient(180deg, #ddeeff 0%, #b8d4f0 100%); border-color: #4a90c8; }
+      .sap-btn:active { background: #c8ddf0; }
+      .sap-btn.primary { background: linear-gradient(180deg, #5aace0 0%, #3a88c0 100%); color: #fff; border-color: #2a78b0; }
+      .sap-btn.primary:hover { background: linear-gradient(180deg, #4a9cd0 0%, #2a78b0 100%); }
+
+      /* ── Right Panel ── */
+      .right-panel {
+        width: 230px;
+        flex-shrink: 0;
+        background: #f0f0f0;
+        border: 1px solid #888;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .rp-titlebar {
+        background: linear-gradient(180deg, #4a90c8 0%, #2d6ea0 100%);
+        color: #fff;
+        padding: 4px 8px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        user-select: none;
+      }
+      .rp-nav-btn {
+        width: 16px; height: 16px;
+        background: rgba(255,255,255,0.15);
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 2px;
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; font-size: 8px; color: #fff;
+      }
+      .rp-select {
+        flex: 1;
+        height: 18px;
+        font-size: 11px;
+        font-family: inherit;
+        border: 1px solid #4a7aaa;
+        background: #fff;
+        padding: 0 2px;
+        outline: none;
+      }
+      .rp-close {
+        cursor: pointer; font-size: 12px; color: #fff; opacity: 0.8;
+        margin-left: auto;
+      }
+      .rp-close:hover { opacity: 1; }
+      .rp-body { overflow-y: auto; flex: 1; padding: 4px 0; }
+      .rp-row {
+        display: grid;
+        grid-template-columns: 115px 1fr;
+        align-items: center;
+        gap: 2px;
+        padding: 1px 6px;
+        min-height: 20px;
+      }
+      .rp-label { font-size: 11px; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rp-input {
+        border: 1px solid #bbb;
+        background: #fff;
+        height: 18px;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 0 3px;
+        outline: none;
+        width: 100%;
+      }
+      .rp-input:focus { border-color: #4a90c8; }
+      .rp-field-select {
+        border: 1px solid #bbb;
+        background: #fff;
+        height: 18px;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 0;
+        outline: none;
+        width: 100%;
+        cursor: pointer;
+      }
+      .rp-spacer { height: 6px; }
+      .rp-textarea {
+        border: 1px solid #bbb;
+        background: #fff;
+        font-size: 11px;
+        font-family: inherit;
+        padding: 2px 3px;
+        outline: none;
+        width: 100%;
+        resize: none;
+        height: 34px;
+      }
+
+      /* ── Logistics Tab ── */
+      .tab-section-title {
+        font-size: 11px;
+        font-weight: 600;
+        border-bottom: 1px solid #c0c8e0;
+        padding: 4px 0 2px 0;
+        margin-bottom: 4px;
+        color: #2a5a90;
+      }
+      .form-grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 3px 24px;
+      }
+
+      /* ── Context Menu ── */
+      .ctx-menu {
+        position: fixed;
+        background: #fff;
+        border: 1px solid #aaa;
+        box-shadow: 3px 3px 8px rgba(0,0,0,0.25);
+        width: 220px;
+        z-index: 9999;
+        display: none;
+        padding: 3px 0;
+        font-size: 11px;
+      }
+      .ctx-menu.visible { display: block; }
+      .ctx-item {
+        padding: 4px 20px;
+        cursor: pointer;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ctx-item:hover { background: #ddeeff; }
+      .ctx-item .ctx-icon { width: 16px; height: 16px; flex-shrink: 0; }
+      .ctx-separator { height: 1px; background: #ddd; margin: 3px 0; }
+      .ctx-item.underline-first { text-decoration: none; }
+      .ctx-item .underline-first-char { text-decoration: underline; }
+
+      /* ── Top Toolbar ── */
+      .sap-toolbar {
+        background: linear-gradient(180deg, #f8f8f8 0%, #e8e8e8 100%);
+        border-bottom: 1px solid #bbb;
+        padding: 3px 8px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+      }
+      .tb-tool-btn {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px 7px;
+        font-size: 11px;
+        font-family: inherit;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 2px;
+        cursor: pointer;
+        white-space: nowrap;
+        color: #222;
+        height: 24px;
+      }
+      .tb-tool-btn:hover { background: #ddeeff; border-color: #aac8f0; }
+      .tb-tool-btn:active { background: #c8ddf0; }
+      .tb-tool-btn .tb-icon { font-size: 14px; line-height: 1; }
+      .tb-tool-btn.copyto-btn { color: #0054a6; font-weight: 600; }
+      .tb-tool-btn.copyto-btn:hover { background: #ddeeff; border-color: #4a90c8; }
+      .tb-sep { width: 1px; background: #ccc; height: 20px; margin: 0 3px; }
+
+      /* ── Copy To Dialog ── */
+      .modal-overlay {
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.35);
+        z-index: 10000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-overlay.visible { display: flex; }
+      .modal-box {
+        background: #f0f0f0;
+        border: 1px solid #888;
+        box-shadow: 4px 4px 16px rgba(0,0,0,0.4);
+        display: flex;
+        flex-direction: column;
+        min-width: 320px;
+      }
+      .modal-titlebar {
+        background: linear-gradient(180deg, #4a90c8 0%, #2d6ea0 100%);
+        color: #fff;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 5px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        user-select: none;
+        flex-shrink: 0;
+      }
+      .modal-close { cursor: pointer; font-size: 13px; opacity: 0.85; }
+      .modal-close:hover { opacity: 1; }
+      .modal-body { padding: 14px 16px; }
+      .modal-footer { padding: 8px 12px; border-top: 1px solid #ddd; display: flex; justify-content: flex-end; gap: 6px; }
+
+      /* ── Item Search Popup ── */
+      #itemSearchModal .modal-box { min-width: 480px; }
+      .item-search-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+      .item-search-table th { background: #d8d8d8; border: 1px solid #bbb; padding: 3px 6px; text-align: left; font-weight: 600; }
+      .item-search-table td { border: 1px solid #e0e0e0; padding: 2px 6px; height: 22px; cursor: pointer; }
+      .item-search-table tr:hover td { background: #ddeeff; }
+      .item-search-table tr.sel td { background: #b8d4f0; }
+
+      /* ── Row Details Dialog ── */
+      #rowDetailsModal .modal-box { min-width: 520px; max-height: 80vh; overflow-y: auto; }
+      .rd-grid { display: grid; grid-template-columns: 140px 1fr; gap: 4px 8px; align-items: center; }
+      .rd-label { font-size: 11px; color: #222; white-space: nowrap; }
+      .rd-input {
+        border: 1px solid #bbb; background: #fff; height: 20px;
+        font-size: 11px; font-family: inherit; padding: 0 4px; outline: none; width: 100%;
+      }
+      .rd-input:focus { border-color: #4a90c8; }
+      .rd-section { font-size: 11px; font-weight: 600; color: #2a5a90; border-bottom: 1px solid #c0c8e0; padding-bottom: 2px; margin: 8px 0 4px; grid-column: 1/-1; }
+
+      /* ── Misc ── */
+      .separator { height: 1px; background: #d0d0d0; margin: 4px 0; }
+      .grid-expand-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 16px; height: 16px; font-size: 9px;
+        border: 1px solid #bbb; background: #e8e8e8; cursor: pointer; border-radius: 1px;
+        color: #4a90c8;
+      }
+  </style>
+  <script src="./sap2_files/load.js">
+  </script>
+  <script src="./sap2_files/anima.min.js" type="module">
+  </script>
+ <style>*, ::before, ::after{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgb(59 130 246 / 0.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/* ! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com */*,::after,::before{box-sizing:border-box;border-width:0;border-style:solid;border-color:#e5e7eb}::after,::before{--tw-content:''}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;tab-size:4;font-family:ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0;padding:0}legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.visible{visibility:visible}</style></head>
+ <body><div style="margin-bottom: 48px;"><!--<>--><style>
+  /* Font definitions */
+  /* cyrillic-ext */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZJhiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+  }
+  /* cyrillic */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZthiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+  }
+  /* greek-ext */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZNhiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+1F00-1FFF;
+  }
+  /* greek */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZxhiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+  }
+  /* vietnamese */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZBhiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+  }
+  /* latin-ext */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZFhiJ-Ek-_EeAmM.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  /* latin */
+  @font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+
+  /* Global styles scoped to the badge */
+  .anima-badge * {
+    -webkit-font-smoothing: antialiased;
+    box-sizing: border-box;
+  }
+
+  .anima-badge button:focus-visible {
+    outline: 2px solid #4a90e2 !important;
+    outline: -webkit-focus-ring-color auto 5px !important;
+  }
+
+  /* CSS Variables */
+  .anima-badge {
+    --badge-bg-color: #1a1d2e;
+    --badge-border-color: #6c53ce;
+    --badge-text-color: #f2f5f9;
+    --body-regular-md-font-family: "Inter", Helvetica;
+    --body-regular-md-font-weight: 400;
+    --body-regular-md-font-size: 14px;
+    --body-regular-md-letter-spacing: 0px;
+    --body-regular-md-line-height: 1.5;
+    --body-regular-md-font-style: normal;
+  }
+
+  /* Badge Container */
+  .anima-badge {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+  }
+
+  /* Badge Button */
+  .anima-badge .badge-button {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0px 12px;
+    position: relative;
+    background-color: var(--badge-bg-color);
+    border-radius: 29px;
+    border: 1px solid;
+    border-color: var(--badge-border-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .anima-badge .badge-button:hover {
+    opacity: 0.9;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(108, 83, 206, 0.3);
+  }
+
+  /* Badge Content */
+  .anima-badge .badge-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .anima-badge .badge-icon {
+    position: relative;
+    width: 16px;
+    height: 16px;
+  }
+
+  .anima-badge .badge-text {
+    position: relative;
+    width: fit-content;
+    font-family: var(--body-regular-md-font-family);
+    font-weight: var(--body-regular-md-font-weight);
+    color: var(--badge-text-color);
+    font-size: var(--body-regular-md-font-size);
+    letter-spacing: var(--body-regular-md-letter-spacing);
+    line-height: var(--body-regular-md-line-height);
+    font-style: var(--body-regular-md-font-style);
+    white-space: nowrap;
+  }
+
+  /* Close Button */
+  .anima-badge .close-button {
+    all: unset;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+  }
+
+  .anima-badge .close-button:hover {
+    opacity: 1;
+  }
+
+  .anima-badge .close-icon {
+    position: relative;
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Responsive styles */
+  @media screen and (max-width: 768px) {
+    .anima-badge {
+      bottom: 16px;
+      right: 16px;
+    }
+
+    .anima-badge .badge-button {
+      height: 36px;
+      padding: 0px 10px;
+      gap: 6px;
+    }
+
+    .anima-badge .badge-text {
+      font-size: 13px;
+    }
+  }
+
+  @media screen and (max-width: 480px) {
+    .anima-badge {
+      bottom: 12px;
+      right: 12px;
+    }
+
+    .anima-badge .badge-button {
+      height: 32px;
+      padding: 0px 8px;
+      gap: 6px;
+    }
+
+    .anima-badge .badge-text {
+      font-size: 12px;
+    }
+
+    .anima-badge .badge-icon,
+    .anima-badge .close-icon {
+      width: 14px;
+      height: 14px;
+    }
+  }
+</style>
+  <div class="anima-badge" id="anima-badge">
+    <a target="_blank" class="badge-button" href="https://www.animaapp.com/an?url=https%3A%2F%2Fwww.animaapp.com&amp;utm_content=flat-fire-7098.preview.animaapp.io&amp;utm_medium=anima-playground&amp;utm_source=free-website-banner">
+      <div class="badge-content">
+        <img class="badge-icon" src="./sap2_files/anima-logo.svg" alt="Anima logo">
+      </div>
+      <div class="badge-text">Built with Anima</div>
+      <button class="close-button">
+        <img class="close-icon" src="./sap2_files/close-button.svg" alt="Close">
+      </button>
+    </a>
+  </div><!--</>--></div>
+  <div style="display:flex; gap:0; align-items:flex-start; height:100vh; overflow:hidden;">
+   <!-- ════════════════════════════════════════
+           LEFT – Sales Order Window
+      ════════════════════════════════════════ -->
+   <div class="sap-window" style="flex:1; min-width:0; height:100vh; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column;">
+    <!-- Title Bar -->
+    <div class="sap-titlebar">
+     <span>
+      Sales Order
+     </span>
+     <div class="titlebar-btns">
+      <div class="tb-btn" title="Minimize">
+       −
+      </div>
+      <div class="tb-btn" title="Maximize">
+       □
+      </div>
+      <div class="tb-btn close-btn" title="Close">
+       ✕
+      </div>
+     </div>
+    </div>
+    <!-- ── SAP B1-Style Top Toolbar ── -->
+    <div class="sap-toolbar">
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;new&#39;)" title="New Document">
+      <span class="tb-icon">
+       📄
+      </span>
+      New
+     </button>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;open&#39;)" title="Open Document">
+      <span class="tb-icon">
+       📂
+      </span>
+      Open
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;save&#39;)" title="Save Document">
+      <span class="tb-icon">
+       💾
+      </span>
+      Save
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;print&#39;)" title="Print Document">
+      <span class="tb-icon">
+       🖨
+      </span>
+      Print
+     </button>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;printPreview&#39;)" title="Print Preview">
+      <span class="tb-icon">
+       🖻
+      </span>
+      Preview
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn copyto-btn" onclick="openCopyToDialog()" title="Copy To Invoice or Delivery">
+      <span class="tb-icon">
+       🔄
+      </span>
+      Copy To ▼
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;email&#39;)" title="Send by Email">
+      <span class="tb-icon">
+       ✉
+      </span>
+      Email
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;workflow&#39;)" title="Workflow">
+      <span class="tb-icon">
+       🕐
+      </span>
+      Workflow
+     </button>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;approval&#39;)" title="Approval Status">
+      <span class="tb-icon">
+       ✓
+      </span>
+      Approval
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;attachments&#39;)" title="Attachments">
+      <span class="tb-icon">
+       📎
+      </span>
+      Attach
+     </button>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;docRemarks&#39;)" title="Document Remarks">
+      <span class="tb-icon">
+       💬
+      </span>
+      Remarks
+     </button>
+     <div class="tb-sep">
+     </div>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;paymentMeans&#39;)" title="Payment Means">
+      <span class="tb-icon">
+       💴
+      </span>
+      Payment
+     </button>
+     <button class="tb-tool-btn" onclick="toolbarAction(&#39;grossProfit&#39;)" title="Gross Profit">
+      <span class="tb-icon">
+       📊
+      </span>
+      Gross Profit
+     </button>
+    </div>
+    <!-- Header Fields -->
+    <div class="sap-header">
+     <div class="header-grid">
+      <!-- ── Left column ── -->
+      <div>
+       <!-- Customer -->
+       <div class="field-row">
+        <span class="field-label">
+         Customer
+        </span>
+        <div class="link-arrow orange" title="Browse Customer">
+         →
+        </div>
+        <input class="field-input" id="fldCustomerCode" style="width:160px;" type="text" value="C20000">
+       </div>
+       <!-- Name -->
+       <div class="field-row">
+        <span class="field-label">
+         Name
+        </span>
+        <input class="field-input" style="width:190px;" type="text" value="Maxi-Teq">
+       </div>
+       <!-- Contact Person -->
+       <div class="field-row">
+        <span class="field-label">
+         Contact Person
+        </span>
+        <div class="link-arrow orange">
+         →
+        </div>
+        <input class="field-input" style="width:130px;" type="text" value="Norm Thompson">
+        <div class="combo-arrow">
+         ▼
+        </div>
+        <div class="edit-btn" title="Edit">
+         ✎
+        </div>
+       </div>
+       <!-- Customer Ref No -->
+       <div class="field-row">
+        <span class="field-label">
+         Customer Ref. No.
+        </span>
+        <input class="field-input" style="width:190px;" type="text" value="">
+       </div>
+       <!-- BP Currency -->
+       <div class="field-row">
+        <span class="field-label">
+         BP Currency
+        </span>
+        <select class="field-select" style="width:50px;">
+         <option>
+          GBP
+         </option>
+         <option>
+          USD
+         </option>
+         <option>
+          INR
+         </option>
+        </select>
+        <div class="combo-arrow" style="border:1px solid #bbb;">
+         ▼
+        </div>
+        <input class="field-input" style="width:50px; margin-left:2px;" type="text" value="GBP">
+       </div>
+      </div>
+      <!-- ── Right column ── -->
+      <div>
+       <!-- No. -->
+       <div class="field-row">
+        <span class="field-label">
+         No.
+        </span>
+        <select class="field-select" style="width:70px;">
+         <option>
+          Primary
+         </option>
+         <option>
+          Manual
+         </option>
+        </select>
+        <div class="combo-arrow" style="border:1px solid #bbb;">
+         ▼
+        </div>
+        <input class="field-input" style="width:70px; margin-left:4px;" type="text" value="1229">
+       </div>
+       <!-- Status -->
+       <div class="field-row">
+        <span class="field-label">
+         Status
+        </span>
+        <input class="field-input readonly" readonly="" style="width:160px;" type="text" value="Open">
+       </div>
+       <!-- Posting Date -->
+       <div class="field-row">
+        <span class="field-label">
+         Posting Date
+        </span>
+        <input class="field-input" style="width:100px;" type="text" value="27.04.21">
+       </div>
+       <!-- Delivery Date -->
+       <div class="field-row">
+        <span class="field-label">
+         Delivery Date
+        </span>
+        <input class="field-input" style="width:100px;" type="text" value="">
+       </div>
+       <!-- Document Date -->
+       <div class="field-row">
+        <span class="field-label">
+         Document Date
+        </span>
+        <input class="field-input" style="width:100px;" type="text" value="27.04.21">
+       </div>
+      </div>
+     </div>
+    </div>
+    <!-- ── Tabs Bar ── -->
+    <div class="sap-tabs-bar">
+     <div class="sap-tab active" onclick="switchTab(this,&#39;contents&#39;)">
+      Contents
+     </div>
+     <div class="sap-tab" onclick="switchTab(this,&#39;logistics&#39;)">
+      Logistics
+     </div>
+     <div class="sap-tab" onclick="switchTab(this,&#39;accounting&#39;)">
+      Accounting
+     </div>
+     <div class="sap-tab" onclick="switchTab(this,&#39;edocs&#39;)">
+      Electronic Documents
+     </div>
+     <div class="sap-tab" onclick="switchTab(this,&#39;attachments&#39;)">
+      Attachments
+     </div>
+    </div>
+    <!-- ══════════════ TAB: CONTENTS ══════════════ -->
+    <div class="tab-panel active" id="panel-contents" style="flex: 1 1 0%; display: flex; flex-direction: column; overflow: hidden;">
+     <!-- Row above grid -->
+     <div class="contents-controls">
+      <div style="display:flex;align-items:center;gap:4px;">
+       <span class="field-label" style="min-width:auto;">
+        Item/Service Type
+       </span>
+       <select class="field-select" style="width:100px;">
+        <option>
+         Item
+        </option>
+        <option>
+         Service
+        </option>
+       </select>
+       <div class="combo-arrow" style="border:1px solid #bbb;">
+        ▼
+       </div>
+      </div>
+      <div style="flex:1;">
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+       <span class="field-label" style="min-width:auto;">
+        Summary Type
+       </span>
+       <select class="field-select" style="width:110px;">
+        <option>
+         No Summary
+        </option>
+        <option>
+         By Items
+        </option>
+        <option>
+         By Documents
+        </option>
+       </select>
+       <div class="combo-arrow" style="border:1px solid #bbb;">
+        ▼
+       </div>
+      </div>
+     </div>
+     <!-- Grid -->
+     <div class="grid-wrap" id="mainGrid" oncontextmenu="showCtxMenu(event)" style="margin:6px 12px; max-height:220px;">
+      <table class="sap-table" id="salesTable">
+       <thead>
+        <tr>
+         <th style="width:28px;">
+          #
+         </th>
+         <th style="width:100px;">
+          Item No.
+         </th>
+         <th style="width:80px;">
+          Quantity
+         </th>
+         <th style="width:80px;">
+          Unit Price
+         </th>
+         <th style="width:70px;">
+          Disc %
+         </th>
+         <th style="width:70px;">
+          Tax Code
+         </th>
+         <th style="width:90px;">
+          Total (LC)
+         </th>
+         <th style="width:80px;">
+          UoM Code
+         </th>
+         <th style="width:90px;">
+          Distr. Rule
+         </th>
+         <th style="min-width:100px;">
+          COGS Distr. Rule
+         </th>
+        </tr>
+       </thead>
+       <tbody id="gridBody">
+        <tr class="sap-grid-row selected" onclick="selectRow(this)">
+         <td class="row-num">
+          1
+         </td>
+         <td class="cell-blue" data-item="A00001" onclick="openItemSearch(this)" style="cursor:pointer;">
+          <span style="color:#e67c00;margin-right:2px;">
+           →
+          </span>
+          A00001
+         </td>
+         <td>
+          <input class="cell-input" type="text" value="1.000">
+         </td>
+         <td>
+          <input class="cell-input" type="text" value="">
+         </td>
+         <td>
+          <input class="cell-input" type="text" value="">
+         </td>
+         <td>
+          <input class="cell-input" type="text" value="">
+         </td>
+         <td style="text-align:right; color:#000;">
+          GBP 300.00
+         </td>
+         <td>
+          Manual
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+          2
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr class="sap-grid-row" onclick="selectRow(this)">
+         <td class="row-num">
+         </td>
+         <td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;">
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+         <td>
+         </td>
+        </tr>
+       </tbody>
+      </table>
+     </div>
+     <!-- Footer -->
+     <div class="sap-footer">
+      <!-- Left: employee + remarks -->
+      <div>
+       <div class="field-row" style="margin-bottom:3px;">
+        <span class="field-label">
+         Sales Employee
+        </span>
+        <input class="field-input" style="width:140px;" type="text" value="Sales Manager">
+       </div>
+       <div class="field-row">
+        <span class="field-label">
+         Owner
+        </span>
+        <input class="field-input" style="width:140px;" type="text" value="">
+       </div>
+       <div class="field-row" style="margin-top:3px; align-items:flex-start;">
+        <span class="field-label" style="padding-top:2px;">
+         Remarks
+        </span>
+        <textarea id="docRemarks" onblur="this.style.borderColor=&#39;#bbb&#39;" onfocus="this.style.borderColor=&#39;#4a90c8&#39;" style="width:260px; height:44px; border:1px solid #bbb; background:#fff; font-size:11px; font-family:inherit; padding:2px 4px; outline:none; resize:vertical;"></textarea>
+       </div>
+      </div>
+      <!-- Right: totals -->
+      <div>
+       <table class="totals-table">
+        <tbody><tr>
+         <td class="total-label">
+          Discount
+         </td>
+         <td>
+          <input class="total-input editable" type="text" value="GBP 300.00">
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr>
+         <td class="total-label">
+         </td>
+         <td>
+          <input class="total-input editable" placeholder="%" type="text" value="">
+         </td>
+         <td style="padding-left:4px;font-size:10px;color:#888;">
+          %
+         </td>
+        </tr>
+        <tr>
+         <td class="total-label" style="padding-top:2px; font-size:10px; color:#555;">
+          <label style="display:flex;align-items:center;gap:3px;justify-content:flex-end;">
+           <input style="margin:0;" type="checkbox">
+           Rounding
+          </label>
+         </td>
+         <td>
+          <input class="total-input" readonly="" type="text" value="GBP 0.00">
+         </td>
+         <td>
+         </td>
+        </tr>
+        <tr>
+         <td>
+         </td>
+         <td>
+          <input class="total-input" readonly="" type="text" value="GBP 60.00">
+         </td>
+         <td>
+         </td>
+        </tr>
+       </tbody></table>
+      </div>
+     </div>
+     <!-- Action Bar -->
+     <div class="sap-actionbar">
+      <div class="nav-btn" title="First">
+       ◀◀
+      </div>
+      <div class="nav-btn" title="Prev">
+       ◀
+      </div>
+      <div class="nav-btn" title="Next">
+       ▶
+      </div>
+      <div class="nav-btn" title="Last">
+       ▶▶
+      </div>
+      <div style="flex:1;">
+      </div>
+      <button class="sap-btn primary">
+       Add
+      </button>
+      <button class="sap-btn">
+       Cancel
+      </button>
+      <button class="sap-btn">
+       Close
+      </button>
+     </div>
+    </div>
+    <!-- ══════════════ TAB: LOGISTICS ══════════════ -->
+    <div class="tab-panel" id="panel-logistics" style="padding: 10px 14px; overflow-y: auto; display: none;">
+     <div class="tab-section-title">
+      Ship To
+     </div>
+     <div class="form-grid-2">
+      <div class="field-row">
+       <span class="field-label">
+        Ship To Name
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Ship From
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Street
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Warehouse
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         WH01 – Main
+        </option>
+        <option>
+         WH02
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        City
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Shipping Type
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         Ground
+        </option>
+        <option>
+         Air
+        </option>
+        <option>
+         Express
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Country
+       </span>
+       <input class="field-input field-input-full" type="text" value="GB">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Tracking Number
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+     </div>
+     <div class="separator" style="margin-top:8px;">
+     </div>
+     <div class="tab-section-title">
+      Dates
+     </div>
+     <div class="form-grid-2">
+      <div class="field-row">
+       <span class="field-label">
+        Requested Delivery
+       </span>
+       <input class="field-input" style="width:100px;" type="text" value="27.04.21">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Pick Date
+       </span>
+       <input class="field-input" style="width:100px;" type="text" value="">
+      </div>
+     </div>
+    </div>
+    <!-- ══════════════ TAB: ACCOUNTING ══════════════ -->
+    <div class="tab-panel" id="panel-accounting" style="padding: 10px 14px; overflow-y: auto; display: none;">
+     <div class="tab-section-title">
+      Payment Info
+     </div>
+     <div class="form-grid-2">
+      <div class="field-row">
+       <span class="field-label">
+        Payment Terms
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         Net 30
+        </option>
+        <option>
+         Net 60
+        </option>
+        <option>
+         Immediate
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Payment Method
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         Bank Transfer
+        </option>
+        <option>
+         Cheque
+        </option>
+        <option>
+         Cash
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Project Code
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Indicator
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+     </div>
+     <div class="separator" style="margin-top:8px;">
+     </div>
+     <div class="tab-section-title">
+      GL Accounts
+     </div>
+     <div class="form-grid-2">
+      <div class="field-row">
+       <span class="field-label">
+        Revenue Account
+       </span>
+       <input class="field-input field-input-full" type="text" value="4000000">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Tax Account
+       </span>
+       <input class="field-input field-input-full" type="text" value="2100000">
+      </div>
+     </div>
+    </div>
+    <!-- ══════════════ TAB: ELECTRONIC DOCUMENTS ══════════════ -->
+    <div class="tab-panel" id="panel-edocs" style="padding: 10px 14px; overflow-y: auto; display: none;">
+     <div class="tab-section-title">
+      Electronic Document Settings
+     </div>
+     <div class="form-grid-2">
+      <div class="field-row">
+       <span class="field-label">
+        eDoc Status
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         Not Generated
+        </option>
+        <option>
+         Generated
+        </option>
+        <option>
+         Sent
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        eDoc Number
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Export Format
+       </span>
+       <select class="field-select" style="flex:1;width:100%;">
+        <option>
+         PDF
+        </option>
+        <option>
+         XML
+        </option>
+        <option>
+         UBL
+        </option>
+       </select>
+      </div>
+      <div class="field-row">
+       <span class="field-label">
+        Recipient Email
+       </span>
+       <input class="field-input field-input-full" type="text">
+      </div>
+     </div>
+    </div>
+    <!-- ══════════════ TAB: ATTACHMENTS ══════════════ -->
+    <div class="tab-panel" id="panel-attachments" style="padding: 10px 14px; overflow-y: auto; display: none;">
+     <div class="tab-section-title">
+      Attached Files
+     </div>
+     <table style="width:100%; border-collapse:collapse; font-size:11px;">
+      <thead>
+       <tr>
+        <th style="background:#e0e0e0;border:1px solid #bbb;padding:3px 6px;text-align:left;width:200px;">
+         File Name
+        </th>
+        <th style="background:#e0e0e0;border:1px solid #bbb;padding:3px 6px;text-align:left;width:80px;">
+         Type
+        </th>
+        <th style="background:#e0e0e0;border:1px solid #bbb;padding:3px 6px;text-align:left;">
+         Description
+        </th>
+        <th style="background:#e0e0e0;border:1px solid #bbb;padding:3px 6px;text-align:left;width:100px;">
+         Date
+        </th>
+       </tr>
+      </thead>
+      <tbody>
+       <tr>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;height:22px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+       </tr>
+       <tr>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;height:22px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+       </tr>
+       <tr>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;height:22px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+        <td style="border:1px solid #e0e0e0;padding:2px 6px;">
+        </td>
+       </tr>
+      </tbody>
+     </table>
+     <div style="margin-top:6px; display:flex; gap:6px;">
+      <button class="sap-btn">
+       📎 Attach File
+      </button>
+      <button class="sap-btn">
+       ✖ Remove
+      </button>
+     </div>
+    </div>
+   </div>
+   <!-- /sap-window -->
+   <!-- ════════════════════════════════════════
+           RIGHT – All Categories Panel
+      ════════════════════════════════════════ -->
+   <div class="right-panel" style="height:100vh; overflow:hidden; display:flex; flex-direction:column;">
+    <!-- Panel Title Bar -->
+    <div class="rp-titlebar">
+     <div class="rp-nav-btn">
+      ◀
+     </div>
+     <div class="rp-nav-btn" style="margin-right:4px;">
+      ▶
+     </div>
+     <select class="rp-select">
+      <option>
+       All Categories
+      </option>
+     </select>
+     <span class="rp-close">
+      ✕
+     </span>
+    </div>
+    <!-- Scrollable body -->
+    <div class="rp-body">
+     <div class="rp-row">
+      <span class="rp-label">
+       Doc. Approval Status
+      </span>
+      <select class="rp-field-select">
+       <option>
+        Pending
+       </option>
+       <option>
+        Approved
+       </option>
+       <option>
+        Not Required
+       </option>
+      </select>
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Payment Date
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Received Amount
+      </span>
+      <input class="rp-input" type="text" value="0.00">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Payment Mode
+      </span>
+      <select class="rp-field-select">
+       <option>
+        Online NEFT
+       </option>
+       <option>
+        Cash
+       </option>
+       <option>
+        Cheque
+       </option>
+      </select>
+     </div>
+     <div class="rp-row" style="align-items:flex-start; padding-top:2px;">
+      <span class="rp-label" style="padding-top:2px;">
+       Payment Remark
+      </span>
+      <textarea class="rp-textarea"></textarea>
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Payment Status
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Order Source
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Vehicle No.
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Vehicle Temp.
+      </span>
+      <input class="rp-input" type="text" value="0.00">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Driver Name
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Driver Mobile
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Route
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Zone
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Delivery Priority
+      </span>
+      <select class="rp-field-select">
+       <option>
+       </option>
+       <option>
+        High
+       </option>
+       <option>
+        Normal
+       </option>
+       <option>
+        Low
+       </option>
+      </select>
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Vehicle Temp. ID
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Gift Wrap
+      </span>
+      <select class="rp-field-select">
+       <option>
+       </option>
+       <option>
+        Yes
+       </option>
+       <option>
+        No
+       </option>
+      </select>
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Gift Message
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Shift Id
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Shift Name
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Payment Ref. Number
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Instruction Type
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       CRM Order ID
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Transporter
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Trans Inv. No.
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       LR No
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Trans Remarks
+      </span>
+      <input class="rp-input" type="text" value="">
+     </div>
+     <div class="rp-spacer">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Freight 1
+      </span>
+      <input class="rp-input" type="text" value="0.00">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Freight 2
+      </span>
+      <input class="rp-input" type="text" value="0.00">
+     </div>
+     <div class="rp-row">
+      <span class="rp-label">
+       Freight 3
+      </span>
+      <input class="rp-input" type="text" value="0.00">
+     </div>
+     <div class="rp-spacer">
+     </div>
+    </div>
+   </div>
+  </div>
+  <!-- /outer flex -->
+  <!-- ════ Copy To Modal ════ -->
+  <div class="modal-overlay" id="copyToModal">
+   <div class="modal-box" style="min-width:320px;">
+    <div class="modal-titlebar">
+     <span>
+      Copy To
+     </span>
+     <span class="modal-close" onclick="closeModal(&#39;copyToModal&#39;)">
+      ✕
+     </span>
+    </div>
+    <div class="modal-body">
+     <p style="font-size:11px; margin-bottom:10px; color:#333;">
+      Select target document type to copy Sales Order #1229 to:
+     </p>
+     <div style="display:flex; flex-direction:column; gap:8px;">
+      <label style="display:flex; align-items:center; gap:8px; font-size:11px; cursor:pointer;">
+       <input checked="" name="copyToType" style="cursor:pointer;" type="radio" value="delivery">
+       <span>
+        🚚
+        <strong>
+         Delivery
+        </strong>
+        – Create a Goods Delivery document
+       </span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:11px; cursor:pointer;">
+       <input name="copyToType" style="cursor:pointer;" type="radio" value="invoice">
+       <span>
+        📃
+        <strong>
+         A/R Invoice
+        </strong>
+        – Create an Accounts Receivable Invoice
+       </span>
+      </label>
+      <label style="display:flex; align-items:center; gap:8px; font-size:11px; cursor:pointer;">
+       <input name="copyToType" style="cursor:pointer;" type="radio" value="reserve">
+       <span>
+        📦
+        <strong>
+         Reserve Invoice
+        </strong>
+        – Create a Reserve Invoice
+       </span>
+      </label>
+     </div>
+     <div style="margin-top:12px; border-top:1px solid #ddd; padding-top:10px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+       <span style="font-size:11px; min-width:110px;">
+        Posting Date
+       </span>
+       <input class="field-input" id="copyToDate" style="width:100px;" type="text" value="27.04.21">
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+       <span style="font-size:11px; min-width:110px;">
+        Delivery Date
+       </span>
+       <input class="field-input" id="copyToDelivDate" style="width:100px;" type="text" value="">
+      </div>
+     </div>
+    </div>
+    <div class="modal-footer">
+     <button class="sap-btn primary" onclick="doCopyTo()">
+      Copy
+     </button>
+     <button class="sap-btn" onclick="closeModal(&#39;copyToModal&#39;)">
+      Cancel
+     </button>
+    </div>
+   </div>
+  </div>
+  <!-- ════ Copied Document Confirmation Modal ════ -->
+  <div class="modal-overlay" id="copyDoneModal">
+   <div class="modal-box" style="min-width:380px;">
+    <div class="modal-titlebar">
+     <span id="copyDoneTitle">
+      Document Copied
+     </span>
+     <span class="modal-close" onclick="closeModal(&#39;copyDoneModal&#39;)">
+      ✕
+     </span>
+    </div>
+    <div class="modal-body" id="copyDoneBody" style="font-size:11px; line-height:1.7;">
+    </div>
+    <div class="modal-footer">
+     <button class="sap-btn primary" onclick="closeModal(&#39;copyDoneModal&#39;)">
+      OK
+     </button>
+    </div>
+   </div>
+  </div>
+  <!-- ════ Item Search Modal ════ -->
+  <div class="modal-overlay" id="itemSearchModal">
+   <div class="modal-box" style="min-width:520px;">
+    <div class="modal-titlebar">
+     <span>
+      Item Master Data – Search
+     </span>
+     <span class="modal-close" onclick="closeModal(&#39;itemSearchModal&#39;)">
+      ✕
+     </span>
+    </div>
+    <div class="modal-body">
+     <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+      <span style="font-size:11px; white-space:nowrap;">
+       Search by:
+      </span>
+      <select class="field-select" id="itemSearchField" style="width:110px;">
+       <option value="code">
+        Item No.
+       </option>
+       <option value="name">
+        Item Name
+       </option>
+       <option value="group">
+        Item Group
+       </option>
+      </select>
+      <input class="field-input" id="itemSearchInput" oninput="filterItems()" placeholder="Type to filter..." style="width:180px;" type="text">
+      <button class="sap-btn" onclick="filterItems()">
+       🔍 Find
+      </button>
+     </div>
+     <div style="max-height:260px; overflow-y:auto; border:1px solid #bbb;">
+      <table class="item-search-table" id="itemSearchTable">
+       <thead>
+        <tr>
+         <th style="width:90px;">
+          Item No.
+         </th>
+         <th style="width:180px;">
+          Item Name
+         </th>
+         <th style="width:70px;">
+          In Stock
+         </th>
+         <th style="width:70px;">
+          Price
+         </th>
+         <th>
+          Group
+         </th>
+        </tr>
+       </thead>
+       <tbody id="itemSearchBody"><tr><td>A00001</td><td>Product A – Standard Unit</td><td style="text-align:right;">42</td><td style="text-align:right;">300.00</td><td>General</td></tr><tr class="sel"><td>A00002</td><td>Product B – Premium Pack</td><td style="text-align:right;">18</td><td style="text-align:right;">450.00</td><td>General</td></tr><tr><td>C10001</td><td>Component X – Steel Bracket</td><td style="text-align:right;">200</td><td style="text-align:right;">12.50</td><td>Components</td></tr><tr><td>C10002</td><td>Component Y – Rubber Seal</td><td style="text-align:right;">500</td><td style="text-align:right;">4.75</td><td>Components</td></tr><tr><td>S20001</td><td>Service – Installation</td><td style="text-align:right;">N/A</td><td style="text-align:right;">150.00</td><td>Services</td></tr><tr><td>S20002</td><td>Service – Consultation</td><td style="text-align:right;">N/A</td><td style="text-align:right;">200.00</td><td>Services</td></tr><tr><td>P30001</td><td>Package – Starter Bundle</td><td style="text-align:right;">15</td><td style="text-align:right;">850.00</td><td>Packages</td></tr><tr><td>P30002</td><td>Package – Enterprise Suite</td><td style="text-align:right;">5</td><td style="text-align:right;">2400.00</td><td>Packages</td></tr><tr><td>R40001</td><td>Raw Material – Aluminium</td><td style="text-align:right;">1200</td><td style="text-align:right;">3.20</td><td>Raw Materials</td></tr><tr><td>R40002</td><td>Raw Material – Carbon Fibre</td><td style="text-align:right;">340</td><td style="text-align:right;">28.60</td><td>Raw Materials</td></tr></tbody>
+      </table>
+     </div>
+     <div style="margin-top:6px; font-size:10px; color:#888;">
+      Double-click or select and press OK to insert item into the grid.
+     </div>
+    </div>
+    <div class="modal-footer">
+     <button class="sap-btn primary" onclick="confirmItemSelect()">
+      OK
+     </button>
+     <button class="sap-btn" onclick="closeModal(&#39;itemSearchModal&#39;)">
+      Cancel
+     </button>
+    </div>
+   </div>
+  </div>
+  <!-- ════ Row Details Modal ════ -->
+  <div class="modal-overlay" id="rowDetailsModal">
+   <div class="modal-box" style="min-width:540px; max-height:85vh; display:flex; flex-direction:column;">
+    <div class="modal-titlebar">
+     <span>
+      Row Details – Line 1
+     </span>
+     <span class="modal-close" onclick="closeModal(&#39;rowDetailsModal&#39;)">
+      ✕
+     </span>
+    </div>
+    <div class="modal-body" style="overflow-y:auto; padding:12px 16px;">
+     <div class="rd-grid">
+      <div class="rd-section">
+       Item Information
+      </div>
+      <span class="rd-label">
+       Item No.
+      </span>
+      <input class="rd-input" id="rd_itemNo" type="text" value="A00001">
+      <span class="rd-label">
+       Item Description
+      </span>
+      <input class="rd-input" id="rd_itemDesc" type="text" value="Product A – Standard Unit">
+      <span class="rd-label">
+       Item Group
+      </span>
+      <input class="rd-input" id="rd_itemGroup" type="text" value="General">
+      <span class="rd-label">
+       UoM Code
+      </span>
+      <select class="rd-input" id="rd_uom">
+       <option>
+        Manual
+       </option>
+       <option>
+        EA
+       </option>
+       <option>
+        BOX
+       </option>
+       <option>
+        KG
+       </option>
+      </select>
+      <div class="rd-section">
+       Quantity &amp; Price
+      </div>
+      <span class="rd-label">
+       Quantity
+      </span>
+      <input class="rd-input" id="rd_qty" type="text" value="1.000">
+      <span class="rd-label">
+       Unit Price
+      </span>
+      <input class="rd-input" id="rd_unitPrice" type="text" value="300.00">
+      <span class="rd-label">
+       Disc %
+      </span>
+      <input class="rd-input" id="rd_disc" type="text" value="0">
+      <span class="rd-label">
+       Tax Code
+      </span>
+      <select class="rd-input" id="rd_tax">
+       <option>
+       </option>
+       <option>
+        S1
+       </option>
+       <option>
+        S2
+       </option>
+       <option>
+        Z0
+       </option>
+      </select>
+      <span class="rd-label">
+       Total (LC)
+      </span>
+      <input class="rd-input" id="rd_totalLC" readonly="" style="background:#e8e8e8;" type="text" value="GBP 300.00">
+      <div class="rd-section">
+       Distribution
+      </div>
+      <span class="rd-label">
+       Warehouse
+      </span>
+      <select class="rd-input" id="rd_wh">
+       <option>
+        WH01 – Main
+       </option>
+       <option>
+        WH02
+       </option>
+      </select>
+      <span class="rd-label">
+       Distr. Rule
+      </span>
+      <input class="rd-input" id="rd_distrRule" type="text" value="">
+      <span class="rd-label">
+       COGS Distr. Rule
+      </span>
+      <input class="rd-input" id="rd_cogsDistr" type="text" value="">
+      <span class="rd-label">
+       Project
+      </span>
+      <input class="rd-input" id="rd_project" type="text" value="">
+      <div class="rd-section">
+       Delivery &amp; Remarks
+      </div>
+      <span class="rd-label">
+       Delivery Date
+      </span>
+      <input class="rd-input" id="rd_delivDate" type="text" value="">
+      <span class="rd-label">
+       Free Text
+      </span>
+      <input class="rd-input" id="rd_freeText" type="text" value="">
+      <span class="rd-label">
+       Row Remarks
+      </span>
+      <textarea id="rd_rowRemarks" onblur="this.style.borderColor=&#39;#bbb&#39;" onfocus="this.style.borderColor=&#39;#4a90c8&#39;" style="width:100%;height:44px;border:1px solid #bbb;background:#fff;font-size:11px;font-family:inherit;padding:2px 4px;outline:none;resize:vertical;"></textarea>
+     </div>
+    </div>
+    <div class="modal-footer">
+     <button class="sap-btn primary" onclick="applyRowDetails()">
+      OK
+     </button>
+     <button class="sap-btn" onclick="closeModal(&#39;rowDetailsModal&#39;)">
+      Cancel
+     </button>
+    </div>
+   </div>
+  </div>
+  <!-- ════ Context Menu ════ -->
+  <div class="ctx-menu" id="ctxMenu">
+   <div class="ctx-item" onclick="ctxAction(&#39;cut&#39;)">
+    <span>
+     ✂
+    </span>
+    <span>
+     <span class="underline-first-char">
+      C
+     </span>
+     ut
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;copy&#39;)">
+    <span>
+     📋
+    </span>
+    <span>
+     <span class="underline-first-char">
+      C
+     </span>
+     opy
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;copyTable&#39;)">
+    <span>
+     📌
+    </span>
+    <span>
+     Copy Table
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;paste&#39;)">
+    <span>
+     📄
+    </span>
+    <span>
+     <span class="underline-first-char">
+      P
+     </span>
+     aste
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;delete&#39;)">
+    <span>
+     ✖
+    </span>
+    <span>
+     <span class="underline-first-char">
+      D
+     </span>
+     elete
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;maximize&#39;)">
+    <span>
+     ⛶
+    </span>
+    <span>
+     <span class="underline-first-char">
+      M
+     </span>
+     aximize/Restore Grid
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;addRow&#39;)">
+    <span>
+     ✚
+    </span>
+    <span>
+     <span class="underline-first-char">
+      A
+     </span>
+     dd Row
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;deleteRow&#39;)">
+    <span>
+     ✖
+    </span>
+    <span>
+     Delete Row
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;duplicateRow&#39;)">
+    <span>
+     🔄
+    </span>
+    <span>
+     Duplicate Row
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;calculator&#39;)">
+    <span>
+     🔢
+    </span>
+    <span>
+     Open Calculator
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;rowDetails&#39;)">
+    <span>
+     📄
+    </span>
+    <span>
+     Row Details...
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;newActivity&#39;)">
+    <span>
+     📅
+    </span>
+    <span>
+     New Activity
+    </span>
+   </div>
+   <div class="ctx-separator">
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;paymentMeans&#39;)">
+    <span>
+     💴
+    </span>
+    <span>
+     Payment Means...
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;grossProfit&#39;)">
+    <span>
+     📊
+    </span>
+    <span>
+     Gross Profit...
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;batchSerial&#39;)">
+    <span>
+     📋
+    </span>
+    <span>
+     Batch/Serial Numbers
+    </span>
+   </div>
+   <div class="ctx-item" onclick="ctxAction(&#39;volumeWeight&#39;)">
+    <span>
+     📜
+    </span>
+    <span>
+     Volume and Weight Calculation...
+    </span>
+   </div>
+  </div>
+  <script>
+   /* ══════════════════════════════════════════
+         Tab switching
+      ══════════════════════════════════════════ */
+      function switchTab(el, tabId) {
+        document.querySelectorAll('.sap-tab').forEach(function(t){ t.classList.remove('active'); });
+        el.classList.add('active');
+        var panels = ['contents','logistics','accounting','edocs','attachments'];
+        panels.forEach(function(id) {
+          var p = document.getElementById('panel-' + id);
+          if (p) { p.classList.remove('active'); p.style.display = 'none'; }
+        });
+        var target = document.getElementById('panel-' + tabId);
+        if (target) {
+          target.classList.add('active');
+          target.style.display = (tabId === 'contents') ? 'flex' : 'block';
+          target.style.flexDirection = (tabId === 'contents') ? 'column' : '';
+        }
+      }
+
+      /* ══════════════════════════════════════════
+         Grid row selection
+      ══════════════════════════════════════════ */
+      function selectRow(row) {
+        document.querySelectorAll('#gridBody tr').forEach(function(r){ r.classList.remove('selected'); });
+        row.classList.add('selected');
+      }
+
+      /* ══════════════════════════════════════════
+         Context Menu
+      ══════════════════════════════════════════ */
+      var ctxMenu = document.getElementById('ctxMenu');
+      var activeRow = null;
+
+      function showCtxMenu(e) {
+        e.preventDefault();
+        ctxMenu.style.left = Math.min(e.clientX, window.innerWidth - 230) + 'px';
+        ctxMenu.style.top  = Math.min(e.clientY, window.innerHeight - 420) + 'px';
+        ctxMenu.classList.add('visible');
+        activeRow = e.target.closest('tr');
+      }
+
+      document.addEventListener('click', function(e) {
+        if (!ctxMenu.contains(e.target)) ctxMenu.classList.remove('visible');
+      });
+
+      var rowCounter = 2;
+      function ctxAction(action) {
+        ctxMenu.classList.remove('visible');
+        var tbody = document.getElementById('gridBody');
+        if (action === 'addRow') {
+          rowCounter++;
+          var tr = document.createElement('tr');
+          tr.className = 'sap-grid-row';
+          tr.setAttribute('onclick', 'selectRow(this)');
+          tr.innerHTML = '<td class="row-num">' + rowCounter + '</td>' +
+            '<td class="cell-blue" onclick="openItemSearch(this)" style="cursor:pointer;"></td>' +
+            '<td><input class="cell-input" type="text" value="" /></td>' +
+            '<td><input class="cell-input" type="text" value="" /></td>' +
+            '<td><input class="cell-input" type="text" value="" /></td>' +
+            '<td><input class="cell-input" type="text" value="" /></td>' +
+            '<td></td><td></td><td></td><td></td>';
+          tbody.appendChild(tr);
+        } else if (action === 'deleteRow') {
+          if (activeRow && tbody.rows.length > 1) activeRow.remove();
+        } else if (action === 'duplicateRow') {
+          if (activeRow) {
+            rowCounter++;
+            var clone = activeRow.cloneNode(true);
+            clone.cells[0].textContent = rowCounter;
+            clone.setAttribute('onclick', 'selectRow(this)');
+            activeRow.parentNode.insertBefore(clone, activeRow.nextSibling);
+          }
+        } else if (action === 'calculator') {
+          alert('Calculator – Feature available in full SAP B1');
+        } else if (action === 'rowDetails') {
+          openRowDetails(activeRow);
+        } else if (action === 'paymentMeans') {
+          alert('Payment Means – Opens payment allocation dialog');
+        } else if (action === 'grossProfit') {
+          alert('Gross Profit – Opens GP analysis dialog');
+        } else if (action === 'batchSerial') {
+          alert('Batch/Serial Numbers – Opens batch tracking dialog');
+        } else if (action === 'volumeWeight') {
+          alert('Volume and Weight Calculation – Feature available in SAP B1');
+        } else if (action === 'newActivity') {
+          alert('New Activity – Opens activity / task dialog');
+        } else if (action === 'cut') {
+          document.execCommand('cut');
+        } else if (action === 'copy') {
+          document.execCommand('copy');
+        } else if (action === 'paste') {
+          alert('Paste – Use Ctrl+V to paste');
+        }
+      }
+
+      /* ══════════════════════════════════════════
+         Toolbar Actions
+      ══════════════════════════════════════════ */
+      function toolbarAction(action) {
+        var labels = {
+          'new': 'New Sales Order form opened.',
+          'open': 'Open document dialog – Browse existing Sales Orders.',
+          'save': 'Document saved successfully.',
+          'print': 'Sending document to printer...',
+          'printPreview': 'Opening print preview...',
+          'email': 'Compose email with document attached.',
+          'workflow': 'Workflow manager opened.',
+          'approval': 'Approval status dialog opened.',
+          'attachments': 'Switch to Attachments tab.',
+          'docRemarks': 'Remarks field is at the bottom of the Contents tab.',
+          'paymentMeans': 'Payment Means – Opens payment allocation dialog.',
+          'grossProfit': 'Gross Profit – Opens GP analysis dialog.'
+        };
+        if (action === 'attachments') {
+          var tab = document.querySelector('.sap-tab:nth-child(5)');
+          if (tab) tab.click();
+        } else {
+          alert(labels[action] || action);
+        }
+      }
+
+      /* ══════════════════════════════════════════
+         Modal helpers
+      ══════════════════════════════════════════ */
+      function openModal(id) { document.getElementById(id).classList.add('visible'); }
+      function closeModal(id) { document.getElementById(id).classList.remove('visible'); }
+
+      /* ══════════════════════════════════════════
+         Copy To Flow
+      ══════════════════════════════════════════ */
+      function openCopyToDialog() { openModal('copyToModal'); }
+
+      function doCopyTo() {
+        var type = document.querySelector('input[name="copyToType"]:checked').value;
+        var date = document.getElementById('copyToDate').value || '27.04.21';
+        var delivDate = document.getElementById('copyToDelivDate').value || date;
+        var labels = { delivery: 'Delivery', invoice: 'A/R Invoice', reserve: 'Reserve Invoice' };
+        var docNum = Math.floor(10000 + Math.random() * 89999);
+
+        closeModal('copyToModal');
+
+        document.getElementById('copyDoneTitle').textContent = labels[type] + ' Created';
+        document.getElementById('copyDoneBody').innerHTML =
+          '<p style="margin-bottom:8px;">Sales Order <strong>#1229</strong> was successfully copied to:</p>' +
+          '<table style="font-size:11px; border-collapse:collapse; width:100%;">' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555; width:130px;">Document Type</td><td><strong>' + labels[type] + '</strong></td></tr>' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555;">Document No.</td><td><strong>' + docNum + '</strong></td></tr>' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555;">Customer</td><td>C20000 – Maxi-Teq</td></tr>' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555;">Posting Date</td><td>' + date + '</td></tr>' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555;">Delivery Date</td><td>' + delivDate + '</td></tr>' +
+          '<tr><td style="padding:3px 8px 3px 0; color:#555;">Total (LC)</td><td>GBP 300.00</td></tr>' +
+          '</table>' +
+          '<p style="margin-top:10px; color:#2a5a90; font-weight:600;">&#10003; Status: Open &nbsp;|&nbsp; Based On: Sales Order 1229</p>';
+
+        openModal('copyDoneModal');
+      }
+
+      /* ══════════════════════════════════════════
+         Item Search Popup
+      ══════════════════════════════════════════ */
+      var inventoryItems = [
+        { code: 'A00001', name: 'Product A – Standard Unit',   stock: '42',   price: '300.00', group: 'General' },
+        { code: 'A00002', name: 'Product B – Premium Pack',    stock: '18',   price: '450.00', group: 'General' },
+        { code: 'C10001', name: 'Component X – Steel Bracket', stock: '200',  price: '12.50',  group: 'Components' },
+        { code: 'C10002', name: 'Component Y – Rubber Seal',   stock: '500',  price: '4.75',   group: 'Components' },
+        { code: 'S20001', name: 'Service – Installation',      stock: 'N/A',  price: '150.00', group: 'Services' },
+        { code: 'S20002', name: 'Service – Consultation',      stock: 'N/A',  price: '200.00', group: 'Services' },
+        { code: 'P30001', name: 'Package – Starter Bundle',    stock: '15',   price: '850.00', group: 'Packages' },
+        { code: 'P30002', name: 'Package – Enterprise Suite',  stock: '5',    price: '2400.00',group: 'Packages' },
+        { code: 'R40001', name: 'Raw Material – Aluminium',    stock: '1200', price: '3.20',   group: 'Raw Materials' },
+        { code: 'R40002', name: 'Raw Material – Carbon Fibre', stock: '340',  price: '28.60',  group: 'Raw Materials' }
+      ];
+
+      var _itemTargetCell = null;
+      var _itemSelectedRow = null;
+
+      function openItemSearch(cell) {
+        _itemTargetCell = cell;
+        _itemSelectedRow = null;
+        document.getElementById('itemSearchInput').value = '';
+        renderItemRows(inventoryItems);
+        openModal('itemSearchModal');
+        setTimeout(function(){ document.getElementById('itemSearchInput').focus(); }, 80);
+      }
+
+      function renderItemRows(items) {
+        var tbody = document.getElementById('itemSearchBody');
+        tbody.innerHTML = '';
+        items.forEach(function(item) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>' + item.code + '</td><td>' + item.name + '</td>' +
+            '<td style="text-align:right;">' + item.stock + '</td>' +
+            '<td style="text-align:right;">' + item.price + '</td>' +
+            '<td>' + item.group + '</td>';
+          tr.addEventListener('click', function() {
+            document.querySelectorAll('#itemSearchBody tr').forEach(function(r){ r.classList.remove('sel'); });
+            tr.classList.add('sel');
+            _itemSelectedRow = item;
+          });
+          tr.addEventListener('dblclick', function() {
+            _itemSelectedRow = item;
+            confirmItemSelect();
+          });
+          tbody.appendChild(tr);
+        });
+      }
+
+      function filterItems() {
+        var val = document.getElementById('itemSearchInput').value.toLowerCase();
+        var field = document.getElementById('itemSearchField').value;
+        var filtered = inventoryItems.filter(function(i) {
+          var src = field === 'code' ? i.code : field === 'name' ? i.name : i.group;
+          return src.toLowerCase().indexOf(val) !== -1;
+        });
+        renderItemRows(filtered);
+      }
+
+      function confirmItemSelect() {
+        if (!_itemSelectedRow) {
+          alert('Please select an item first.');
+          return;
+        }
+        var item = _itemSelectedRow;
+        if (_itemTargetCell) {
+          _itemTargetCell.innerHTML = '<span style="color:#e67c00;margin-right:2px;">&#8594;</span>' + item.code;
+          _itemTargetCell.setAttribute('data-item', item.code);
+          var row = _itemTargetCell.closest('tr');
+          if (row) {
+            var inputs = row.querySelectorAll('.cell-input');
+            if (inputs[0]) inputs[0].value = '1.000';
+            if (inputs[1]) inputs[1].value = item.price;
+            var totalCell = row.cells[6];
+            if (totalCell) totalCell.textContent = 'GBP ' + parseFloat(item.price).toFixed(2);
+            var uomCell = row.cells[7];
+            if (uomCell) uomCell.textContent = item.group === 'Services' ? 'Manual' : 'EA';
+            var numCell = row.cells[0];
+            if (numCell && !numCell.textContent.trim()) {
+              rowCounter++;
+              numCell.textContent = rowCounter;
+            }
+          }
+        }
+        closeModal('itemSearchModal');
+      }
+
+      /* ══════════════════════════════════════════
+         Row Details Popup
+      ══════════════════════════════════════════ */
+      var _rdTargetRow = null;
+
+      function openRowDetails(row) {
+        if (!row) {
+          var sel = document.querySelector('#gridBody tr.selected');
+          row = sel || document.querySelector('#gridBody tr');
+        }
+        _rdTargetRow = row;
+        if (row) {
+          var itemCell = row.cells[1];
+          var txt = itemCell ? itemCell.textContent.replace('→','').trim() : '';
+          var qtyInput = row.querySelector('.cell-input');
+          var qty = qtyInput ? qtyInput.value : '1.000';
+          var priceInputs = row.querySelectorAll('.cell-input');
+          var price = priceInputs[1] ? priceInputs[1].value : '';
+          var disc = priceInputs[2] ? priceInputs[2].value : '';
+          var tax = priceInputs[3] ? priceInputs[3].value : '';
+          var totalCell = row.cells[6];
+          var total = totalCell ? totalCell.textContent.trim() : '';
+
+          document.getElementById('rd_itemNo').value = txt || '';
+          document.getElementById('rd_qty').value = qty || '1.000';
+          document.getElementById('rd_unitPrice').value = price || '';
+          document.getElementById('rd_disc').value = disc || '0';
+          document.getElementById('rd_totalLC').value = total || '';
+          document.getElementById('rd_freeText').value = '';
+          document.getElementById('rd_rowRemarks').value = '';
+
+          var lineNum = row.cells[0] ? row.cells[0].textContent.trim() : '?';
+          document.querySelector('#rowDetailsModal .modal-titlebar span:first-child').textContent = 'Row Details – Line ' + lineNum;
+        }
+        openModal('rowDetailsModal');
+      }
+
+      function applyRowDetails() {
+        if (_rdTargetRow) {
+          var row = _rdTargetRow;
+          var itemNo = document.getElementById('rd_itemNo').value.trim();
+          var qty = document.getElementById('rd_qty').value.trim();
+          var price = document.getElementById('rd_unitPrice').value.trim();
+          var disc = document.getElementById('rd_disc').value.trim();
+          var uom = document.getElementById('rd_uom').value;
+
+          if (itemNo) {
+            row.cells[1].innerHTML = '<span style="color:#e67c00;margin-right:2px;">&#8594;</span>' + itemNo;
+            row.cells[1].setAttribute('data-item', itemNo);
+          }
+          var inputs = row.querySelectorAll('.cell-input');
+          if (inputs[0] && qty) inputs[0].value = qty;
+          if (inputs[1] && price) inputs[1].value = price;
+          if (inputs[2] && disc !== '') inputs[2].value = disc;
+          if (row.cells[7]) row.cells[7].textContent = uom;
+
+          var qtyNum = parseFloat(qty) || 1;
+          var priceNum = parseFloat(price) || 0;
+          var discNum = parseFloat(disc) || 0;
+          var total = qtyNum * priceNum * (1 - discNum / 100);
+          if (row.cells[6] && priceNum) {
+            row.cells[6].textContent = 'GBP ' + total.toFixed(2);
+          }
+
+          if (!row.cells[0].textContent.trim()) {
+            rowCounter++;
+            row.cells[0].textContent = rowCounter;
+          }
+        }
+        closeModal('rowDetailsModal');
+      }
+
+      /* ══════════════════════════════════════════
+         Close modals on overlay click
+      ══════════════════════════════════════════ */
+      document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+        overlay.addEventListener('click', function(e) {
+          if (e.target === overlay) overlay.classList.remove('visible');
+        });
+      });
+
+      /* ══════════════════════════════════════════
+         Item search – Enter key
+      ══════════════════════════════════════════ */
+      document.getElementById('itemSearchInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') filterItems();
+      });
+  </script>
+ 
+
+</body></html>

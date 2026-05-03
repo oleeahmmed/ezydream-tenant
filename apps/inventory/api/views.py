@@ -10,12 +10,14 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
 from apps.inventory.models import (
@@ -35,6 +37,29 @@ from apps.inventory.models import (
     WTQ1,
     WTR1,
 )
+from apps.warehouse.models import OWHS
+
+from apps.inventory.services import (
+    post_oinm_and_apply_stock,
+    reactivate_oinm_stock,
+    resync_all_ige_lines,
+    resync_all_ign_lines,
+    resync_all_wtr_lines,
+    reverse_oinm_stock,
+    sync_goods_issue_line_stock,
+    sync_goods_receipt_line_stock,
+    sync_transfer_line_stock,
+)
+
+
+async def _run_document_stock_sync(fn, *args) -> None:
+    try:
+        await sync_to_async(fn)(*args)
+    except ValidationError as exc:
+        msgs = list(getattr(exc, "messages", []))
+        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+        raise BadRequest(detail=detail) from exc
+
 
 from .serializers import (
     InventoryGoodsIssueCreateBody,
@@ -103,13 +128,49 @@ from .serializers import (
 INVENTORY_API_PREFIX = "/api/inventory"
 
 
+def _item_response(o: OITM) -> ItemResponse:
+    return ItemResponse(
+        ItemCode=o.ItemCode,
+        ItemName=o.ItemName,
+        ItmsGrpCod=o.ItmsGrpCod_id,
+        InvntItem=o.InvntItem,
+        OnHand=str(o.OnHand),
+        IsCommited=str(o.IsCommited),
+        OnOrder=str(o.OnOrder),
+        ByWh=o.ByWh,
+        DfltWH=o.DfltWH or "",
+        FrgnName=o.FrgnName or "",
+        CodeBars=o.CodeBars or "",
+        SalItem=o.SalItem,
+        PrchseItem=o.PrchseItem,
+        SalUnitMsr=o.SalUnitMsr or "",
+        BuyUnitMsr=o.BuyUnitMsr or "",
+        ValidFor=o.ValidFor,
+    )
+
+
+def _item_wh_response(o: OITW) -> ItemWarehouseStockResponse:
+    return ItemWarehouseStockResponse(
+        ItemCode=o.ItemCode,
+        WhsCode=o.WhsCode,
+        OnHand=str(o.OnHand),
+        IsCommited=str(o.IsCommited),
+        AvgPrice=str(o.AvgPrice),
+        OrderQty=str(o.OrderQty),
+        MinStock=str(o.MinStock),
+        MaxStock=str(o.MaxStock),
+        Locked=o.Locked,
+        Canceled=o.Canceled,
+    )
+
+
 class ItemGroupCollection(APIView):
     """Item groups: list with optional ``q`` search, or create one row."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ItemGroupPage:
+    async def get(self, request: Request) -> ItemGroupPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -195,7 +256,7 @@ class ItemCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ItemPage:
+    async def get(self, request: Request) -> ItemPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -210,23 +271,16 @@ class ItemCollection(APIView):
         if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
             qs = qs.filter(ValidFor="Y")
         if search_prefix:
-            qs = qs.filter(Q(ItemCode__istartswith=search_prefix) | Q(ItemName__istartswith=search_prefix))
+            qs = qs.filter(
+                Q(ItemCode__istartswith=search_prefix)
+                | Q(ItemName__istartswith=search_prefix)
+                | Q(FrgnName__istartswith=search_prefix)
+                | Q(CodeBars__istartswith=search_prefix)
+                | Q(DfltWH__istartswith=search_prefix)
+            )
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return ItemPage(
-            items=[
-                ItemResponse(
-                    ItemCode=o.ItemCode,
-                    ItemName=o.ItemName,
-                    ItmsGrpCod=o.ItmsGrpCod_id,
-                    InvntItem=o.InvntItem,
-                    OnHand=str(o.OnHand),
-                    IsCommited=str(o.IsCommited),
-                    OnOrder=str(o.OnOrder),
-                    ByWh=o.ByWh,
-                    ValidFor=o.ValidFor,
-                )
-                for o in rows
-            ],
+            items=[_item_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -238,6 +292,13 @@ class ItemCollection(APIView):
         byw = (data.ByWh or "N").strip().upper()[:1] or "N"
         if inv not in ("Y", "N") or byw not in ("Y", "N"):
             raise BadRequest(detail="InvntItem and ByWh must be Y or N.")
+        si = (data.SalItem or "Y").strip().upper()[:1] or "Y"
+        pi = (data.PrchseItem or "Y").strip().upper()[:1] or "Y"
+        if si not in ("Y", "N") or pi not in ("Y", "N"):
+            raise BadRequest(detail="SalItem and PrchseItem must be Y or N.")
+        dw = (data.DfltWH or "").strip()[:20]
+        if dw and not await OWHS.objects.filter(WhsCode=dw, Inactive="N").aexists():
+            raise BadRequest(detail="Default warehouse not found or inactive (OWHS).")
         o = OITM(
             ItemCode=data.ItemCode.strip(),
             ItemName=data.ItemName.strip(),
@@ -247,22 +308,19 @@ class ItemCollection(APIView):
             IsCommited=Decimal(str(data.IsCommited or "0")),
             OnOrder=Decimal(str(data.OnOrder or "0")),
             ByWh=byw,
+            DfltWH=dw,
+            FrgnName=(data.FrgnName or "").strip()[:200],
+            CodeBars=(data.CodeBars or "").strip()[:200],
+            SalItem=si,
+            PrchseItem=pi,
+            SalUnitMsr=(data.SalUnitMsr or "").strip()[:100],
+            BuyUnitMsr=(data.BuyUnitMsr or "").strip()[:100],
         )
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate ItemCode.")
-        return ItemResponse(
-            ItemCode=o.ItemCode,
-            ItemName=o.ItemName,
-            ItmsGrpCod=o.ItmsGrpCod_id,
-            InvntItem=o.InvntItem,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            OnOrder=str(o.OnOrder),
-            ByWh=o.ByWh,
-            ValidFor=o.ValidFor,
-        )
+        return _item_response(o)
 
 
 class ItemDetail(APIView):
@@ -278,17 +336,7 @@ class ItemDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.ValidFor == "N":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return ItemResponse(
-            ItemCode=o.ItemCode,
-            ItemName=o.ItemName,
-            ItmsGrpCod=o.ItmsGrpCod_id,
-            InvntItem=o.InvntItem,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            OnOrder=str(o.OnOrder),
-            ByWh=o.ByWh,
-            ValidFor=o.ValidFor,
-        )
+        return _item_response(o)
 
     async def patch(self, item_code: str, data: ItemPatchBody) -> ItemResponse:
         try:
@@ -321,23 +369,36 @@ class ItemDetail(APIView):
             if w not in ("Y", "N"):
                 raise BadRequest(detail="ByWh must be Y or N.")
             o.ByWh = w
+        if data.DfltWH is not None:
+            dw = (data.DfltWH or "").strip()[:20]
+            if dw and not await OWHS.objects.filter(WhsCode=dw, Inactive="N").aexists():
+                raise BadRequest(detail="Default warehouse not found or inactive (OWHS).")
+            o.DfltWH = dw
+        if data.FrgnName is not None:
+            o.FrgnName = data.FrgnName.strip()[:200]
+        if data.CodeBars is not None:
+            o.CodeBars = data.CodeBars.strip()[:200]
+        if data.SalItem is not None:
+            si = (data.SalItem or "Y").strip().upper()[:1] or "Y"
+            if si not in ("Y", "N"):
+                raise BadRequest(detail="SalItem must be Y or N.")
+            o.SalItem = si
+        if data.PrchseItem is not None:
+            pi = (data.PrchseItem or "Y").strip().upper()[:1] or "Y"
+            if pi not in ("Y", "N"):
+                raise BadRequest(detail="PrchseItem must be Y or N.")
+            o.PrchseItem = pi
+        if data.SalUnitMsr is not None:
+            o.SalUnitMsr = data.SalUnitMsr.strip()[:100]
+        if data.BuyUnitMsr is not None:
+            o.BuyUnitMsr = data.BuyUnitMsr.strip()[:100]
         if data.ValidFor is not None:
             vf = (data.ValidFor or "Y").strip().upper()[:1] or "Y"
             if vf not in ("Y", "N"):
                 raise BadRequest(detail="ValidFor must be Y or N.")
             o.ValidFor = vf
         await o.asave()
-        return ItemResponse(
-            ItemCode=o.ItemCode,
-            ItemName=o.ItemName,
-            ItmsGrpCod=o.ItmsGrpCod_id,
-            InvntItem=o.InvntItem,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            OnOrder=str(o.OnOrder),
-            ByWh=o.ByWh,
-            ValidFor=o.ValidFor,
-        )
+        return _item_response(o)
 
     async def delete(self, item_code: str) -> ItemResponse:
         """SAP-style: ``ValidFor='N'`` (item stays in DB)."""
@@ -351,17 +412,7 @@ class ItemDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.ValidFor = "N"
         await o.asave(update_fields=["ValidFor"])
-        return ItemResponse(
-            ItemCode=o.ItemCode,
-            ItemName=o.ItemName,
-            ItmsGrpCod=o.ItmsGrpCod_id,
-            InvntItem=o.InvntItem,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            OnOrder=str(o.OnOrder),
-            ByWh=o.ByWh,
-            ValidFor=o.ValidFor,
-        )
+        return _item_response(o)
 
 
 class ItemWarehouseStockCollection(APIView):
@@ -370,7 +421,7 @@ class ItemWarehouseStockCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ItemWarehouseStockPage:
+    async def get(self, request: Request) -> ItemWarehouseStockPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -395,40 +446,35 @@ class ItemWarehouseStockCollection(APIView):
             qs = qs.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return ItemWarehouseStockPage(
-            items=[
-                ItemWarehouseStockResponse(
-                    ItemCode=o.ItemCode,
-                    WhsCode=o.WhsCode,
-                    OnHand=str(o.OnHand),
-                    IsCommited=str(o.IsCommited),
-                    AvgPrice=str(o.AvgPrice),
-                    Canceled=o.Canceled,
-                )
-                for o in rows
-            ],
+            items=[_item_wh_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
 
     async def post(self, data: ItemWarehouseStockCreateBody) -> ItemWarehouseStockResponse:
+        whs = data.WhsCode.strip()[:20]
+        if not await OWHS.objects.filter(WhsCode=whs, Inactive="N").aexists():
+            raise BadRequest(detail="Warehouse not found or inactive (OWHS).")
+        if not await OITM.objects.filter(pk=data.ItemCode.strip()).aexists():
+            raise BadRequest(detail="Item not found (OITM).")
+        lk = (data.Locked or "N").strip().upper()[:1] or "N"
+        if lk not in ("Y", "N"):
+            raise BadRequest(detail="Locked must be Y or N.")
         o, _created = await OITW.objects.aupdate_or_create(
             ItemCode=data.ItemCode.strip(),
-            WhsCode=data.WhsCode.strip(),
+            WhsCode=whs,
             defaults={
                 "OnHand": Decimal(str(data.OnHand or "0")),
                 "IsCommited": Decimal(str(data.IsCommited or "0")),
                 "AvgPrice": Decimal(str(data.AvgPrice or "0")),
+                "OrderQty": Decimal(str(data.OrderQty or "0")),
+                "MinStock": Decimal(str(data.MinStock or "0")),
+                "MaxStock": Decimal(str(data.MaxStock or "0")),
+                "Locked": lk,
                 "Canceled": "N",
             },
         )
-        return ItemWarehouseStockResponse(
-            ItemCode=o.ItemCode,
-            WhsCode=o.WhsCode,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            AvgPrice=str(o.AvgPrice),
-            Canceled=o.Canceled,
-        )
+        return _item_wh_response(o)
 
 
 class ItemWarehouseStockDetail(APIView):
@@ -443,14 +489,7 @@ class ItemWarehouseStockDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return ItemWarehouseStockResponse(
-            ItemCode=o.ItemCode,
-            WhsCode=o.WhsCode,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            AvgPrice=str(o.AvgPrice),
-            Canceled=o.Canceled,
-        )
+        return _item_wh_response(o)
 
     async def patch(self, item_code: str, whs_code: str, data: ItemWarehouseStockPatchBody) -> ItemWarehouseStockResponse:
         try:
@@ -466,20 +505,24 @@ class ItemWarehouseStockDetail(APIView):
             o.IsCommited = Decimal(str(data.IsCommited))
         if data.AvgPrice is not None:
             o.AvgPrice = Decimal(str(data.AvgPrice))
+        if data.OrderQty is not None:
+            o.OrderQty = Decimal(str(data.OrderQty))
+        if data.MinStock is not None:
+            o.MinStock = Decimal(str(data.MinStock))
+        if data.MaxStock is not None:
+            o.MaxStock = Decimal(str(data.MaxStock))
+        if data.Locked is not None:
+            lk = (data.Locked or "N").strip().upper()[:1] or "N"
+            if lk not in ("Y", "N"):
+                raise BadRequest(detail="Locked must be Y or N.")
+            o.Locked = lk
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return ItemWarehouseStockResponse(
-            ItemCode=o.ItemCode,
-            WhsCode=o.WhsCode,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            AvgPrice=str(o.AvgPrice),
-            Canceled=o.Canceled,
-        )
+        return _item_wh_response(o)
 
     async def delete(self, item_code: str, whs_code: str) -> ItemWarehouseStockResponse:
         try:
@@ -491,14 +534,7 @@ class ItemWarehouseStockDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return ItemWarehouseStockResponse(
-            ItemCode=o.ItemCode,
-            WhsCode=o.WhsCode,
-            OnHand=str(o.OnHand),
-            IsCommited=str(o.IsCommited),
-            AvgPrice=str(o.AvgPrice),
-            Canceled=o.Canceled,
-        )
+        return _item_wh_response(o)
 
 
 class UnitOfMeasureCollection(APIView):
@@ -507,7 +543,7 @@ class UnitOfMeasureCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> UnitOfMeasurePage:
+    async def get(self, request: Request) -> UnitOfMeasurePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -640,7 +676,7 @@ class StockTransferRequestCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTransferRequestPage:
+    async def get(self, request: Request) -> StockTransferRequestPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -665,6 +701,7 @@ class StockTransferRequestCollection(APIView):
                     DocDate=o.DocDate,
                     Filler=o.Filler,
                     Comments=o.Comments or "",
+                    JrnlMemo=o.JrnlMemo or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -679,6 +716,7 @@ class StockTransferRequestCollection(APIView):
             DocDate=data.DocDate,
             Filler=data.Filler.strip()[:8],
             Comments=(data.Comments or "").strip()[:254],
+            JrnlMemo=(data.JrnlMemo or "").strip(),
         )
         await o.asave()
         return StockTransferRequestResponse(
@@ -687,6 +725,7 @@ class StockTransferRequestCollection(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -709,6 +748,7 @@ class StockTransferRequestDetail(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -728,6 +768,8 @@ class StockTransferRequestDetail(APIView):
             o.Filler = data.Filler.strip()[:8]
         if data.Comments is not None:
             o.Comments = data.Comments.strip()[:254]
+        if data.JrnlMemo is not None:
+            o.JrnlMemo = data.JrnlMemo.strip()
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -740,6 +782,7 @@ class StockTransferRequestDetail(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -759,6 +802,7 @@ class StockTransferRequestDetail(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -769,7 +813,7 @@ class StockTransferRequestLineCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTransferRequestLinePage:
+    async def get(self, request: Request) -> StockTransferRequestLinePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -815,6 +859,7 @@ class StockTransferRequestLineCollection(APIView):
                     BaseRef=o.BaseRef or "",
                     BaseType=o.BaseType,
                     BaseEntry=o.BaseEntry,
+                    BaseLine=o.BaseLine,
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -841,14 +886,15 @@ class StockTransferRequestLineCollection(APIView):
             Quantity=qty,
             OpenQty=open_qty,
             Price=Decimal(str(data.Price or "0")),
-            FromWhsCod=data.FromWhsCod.strip()[:8],
-            WhsCode=data.WhsCode.strip()[:8],
+            FromWhsCod=data.FromWhsCod.strip()[:20],
+            WhsCode=data.WhsCode.strip()[:20],
             LineStatus=st,
             TargetType=int(data.TargetType) if data.TargetType is not None else -1,
             TrgetEntry=data.TrgetEntry,
             BaseRef=(data.BaseRef or "").strip()[:16],
             BaseType=data.BaseType,
             BaseEntry=data.BaseEntry,
+            BaseLine=data.BaseLine,
         )
         try:
             await o.asave()
@@ -869,6 +915,7 @@ class StockTransferRequestLineCollection(APIView):
             BaseRef=o.BaseRef or "",
             BaseType=o.BaseType,
             BaseEntry=o.BaseEntry,
+            BaseLine=o.BaseLine,
             Canceled=o.Canceled,
         )
 
@@ -902,6 +949,7 @@ class StockTransferRequestLineDetail(APIView):
             BaseRef=o.BaseRef or "",
             BaseType=o.BaseType,
             BaseEntry=o.BaseEntry,
+            BaseLine=o.BaseLine,
             Canceled=o.Canceled,
         )
 
@@ -926,9 +974,9 @@ class StockTransferRequestLineDetail(APIView):
         if data.Price is not None:
             o.Price = Decimal(str(data.Price))
         if data.FromWhsCod is not None:
-            o.FromWhsCod = data.FromWhsCod.strip()[:8]
+            o.FromWhsCod = data.FromWhsCod.strip()[:20]
         if data.WhsCode is not None:
-            o.WhsCode = data.WhsCode.strip()[:8]
+            o.WhsCode = data.WhsCode.strip()[:20]
         if data.LineStatus is not None:
             st = (data.LineStatus or "O").strip().upper()[:1] or "O"
             if st not in ("O", "C"):
@@ -944,6 +992,8 @@ class StockTransferRequestLineDetail(APIView):
             o.BaseType = data.BaseType
         if data.BaseEntry is not None:
             o.BaseEntry = data.BaseEntry
+        if data.BaseLine is not None:
+            o.BaseLine = data.BaseLine
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -965,6 +1015,7 @@ class StockTransferRequestLineDetail(APIView):
             BaseRef=o.BaseRef or "",
             BaseType=o.BaseType,
             BaseEntry=o.BaseEntry,
+            BaseLine=o.BaseLine,
             Canceled=o.Canceled,
         )
 
@@ -997,6 +1048,7 @@ class StockTransferRequestLineDetail(APIView):
             BaseRef=o.BaseRef or "",
             BaseType=o.BaseType,
             BaseEntry=o.BaseEntry,
+            BaseLine=o.BaseLine,
             Canceled=o.Canceled,
         )
 
@@ -1007,7 +1059,7 @@ class StockTransferCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTransferPage:
+    async def get(self, request: Request) -> StockTransferPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1032,6 +1084,7 @@ class StockTransferCollection(APIView):
                     DocDate=o.DocDate,
                     Filler=o.Filler,
                     Comments=o.Comments or "",
+                    JrnlMemo=o.JrnlMemo or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1046,6 +1099,7 @@ class StockTransferCollection(APIView):
             DocDate=data.DocDate,
             Filler=data.Filler.strip(),
             Comments=(data.Comments or "").strip(),
+            JrnlMemo=(data.JrnlMemo or "").strip(),
         )
         await o.asave()
         return StockTransferResponse(
@@ -1054,6 +1108,7 @@ class StockTransferCollection(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1076,6 +1131,7 @@ class StockTransferDetail(APIView):
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1095,18 +1151,22 @@ class StockTransferDetail(APIView):
             o.Filler = data.Filler.strip()[:20]
         if data.Comments is not None:
             o.Comments = data.Comments.strip()
+        if data.JrnlMemo is not None:
+            o.JrnlMemo = data.JrnlMemo.strip()
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(resync_all_wtr_lines, int(doc_entry))
         return StockTransferResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1120,12 +1180,14 @@ class StockTransferDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(resync_all_wtr_lines, int(doc_entry))
         return StockTransferResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Filler=o.Filler,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1136,7 +1198,7 @@ class StockTransferLineCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTransferLinePage:
+    async def get(self, request: Request) -> StockTransferLinePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1159,7 +1221,11 @@ class StockTransferLineCollection(APIView):
         if de is not None:
             qs = qs.filter(header_id=de)
         if search_prefix:
-            qs = qs.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
+            qs = qs.filter(
+                Q(ItemCode__istartswith=search_prefix)
+                | Q(WhsCode__istartswith=search_prefix)
+                | Q(FromWhsCod__istartswith=search_prefix)
+            )
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return StockTransferLinePage(
             items=[
@@ -1168,6 +1234,7 @@ class StockTransferLineCollection(APIView):
                     LineNum=o.LineNum,
                     ItemCode=o.ItemCode,
                     Quantity=str(o.Quantity),
+                    FromWhsCod=o.FromWhsCod,
                     WhsCode=o.WhsCode,
                     Price=str(o.Price),
                     Canceled=o.Canceled,
@@ -1189,18 +1256,21 @@ class StockTransferLineCollection(APIView):
             LineNum=int(data.LineNum),
             ItemCode=data.ItemCode.strip(),
             Quantity=Decimal(str(data.Quantity)),
-            WhsCode=data.WhsCode.strip(),
+            FromWhsCod=data.FromWhsCod.strip()[:20],
+            WhsCode=data.WhsCode.strip()[:20],
             Price=Decimal(str(data.Price or "0")),
         )
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _run_document_stock_sync(sync_transfer_line_stock, int(o.header_id), int(o.LineNum))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
             ItemCode=o.ItemCode,
             Quantity=str(o.Quantity),
+            FromWhsCod=o.FromWhsCod,
             WhsCode=o.WhsCode,
             Price=str(o.Price),
             Canceled=o.Canceled,
@@ -1226,6 +1296,7 @@ class StockTransferLineDetail(APIView):
             LineNum=o.LineNum,
             ItemCode=o.ItemCode,
             Quantity=str(o.Quantity),
+            FromWhsCod=o.FromWhsCod,
             WhsCode=o.WhsCode,
             Price=str(o.Price),
             Canceled=o.Canceled,
@@ -1247,8 +1318,10 @@ class StockTransferLineDetail(APIView):
             o.ItemCode = data.ItemCode.strip()
         if data.Quantity is not None:
             o.Quantity = Decimal(str(data.Quantity))
+        if data.FromWhsCod is not None:
+            o.FromWhsCod = data.FromWhsCod.strip()[:20]
         if data.WhsCode is not None:
-            o.WhsCode = data.WhsCode.strip()
+            o.WhsCode = data.WhsCode.strip()[:20]
         if data.Price is not None:
             o.Price = Decimal(str(data.Price))
         if data.Canceled is not None:
@@ -1257,11 +1330,13 @@ class StockTransferLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(sync_transfer_line_stock, int(doc_entry), int(line_num))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
             ItemCode=o.ItemCode,
             Quantity=str(o.Quantity),
+            FromWhsCod=o.FromWhsCod,
             WhsCode=o.WhsCode,
             Price=str(o.Price),
             Canceled=o.Canceled,
@@ -1281,11 +1356,13 @@ class StockTransferLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(sync_transfer_line_stock, int(doc_entry), int(line_num))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
             ItemCode=o.ItemCode,
             Quantity=str(o.Quantity),
+            FromWhsCod=o.FromWhsCod,
             WhsCode=o.WhsCode,
             Price=str(o.Price),
             Canceled=o.Canceled,
@@ -1298,7 +1375,7 @@ class InventoryGoodsReceiptCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> InventoryGoodsReceiptPage:
+    async def get(self, request: Request) -> InventoryGoodsReceiptPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1322,6 +1399,7 @@ class InventoryGoodsReceiptCollection(APIView):
                     DocNum=o.DocNum,
                     DocDate=o.DocDate,
                     Comments=o.Comments or "",
+                    JrnlMemo=o.JrnlMemo or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1335,6 +1413,7 @@ class InventoryGoodsReceiptCollection(APIView):
             DocNum=data.DocNum,
             DocDate=data.DocDate,
             Comments=(data.Comments or "").strip(),
+            JrnlMemo=(data.JrnlMemo or "").strip(),
         )
         await o.asave()
         return InventoryGoodsReceiptResponse(
@@ -1342,6 +1421,7 @@ class InventoryGoodsReceiptCollection(APIView):
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1363,6 +1443,7 @@ class InventoryGoodsReceiptDetail(APIView):
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1380,17 +1461,21 @@ class InventoryGoodsReceiptDetail(APIView):
             o.DocDate = data.DocDate
         if data.Comments is not None:
             o.Comments = data.Comments.strip()
+        if data.JrnlMemo is not None:
+            o.JrnlMemo = data.JrnlMemo.strip()
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(resync_all_ign_lines, int(doc_entry))
         return InventoryGoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1404,11 +1489,13 @@ class InventoryGoodsReceiptDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(resync_all_ign_lines, int(doc_entry))
         return InventoryGoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1419,7 +1506,7 @@ class InventoryGoodsReceiptLineCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> InventoryGoodsReceiptLinePage:
+    async def get(self, request: Request) -> InventoryGoodsReceiptLinePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1485,6 +1572,7 @@ class InventoryGoodsReceiptLineCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(o.header_id), int(o.LineNum))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1558,6 +1646,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1585,6 +1674,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1605,7 +1695,7 @@ class InventoryGoodsIssueCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> InventoryGoodsIssuePage:
+    async def get(self, request: Request) -> InventoryGoodsIssuePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1629,6 +1719,7 @@ class InventoryGoodsIssueCollection(APIView):
                     DocNum=o.DocNum,
                     DocDate=o.DocDate,
                     Comments=o.Comments or "",
+                    JrnlMemo=o.JrnlMemo or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1642,6 +1733,7 @@ class InventoryGoodsIssueCollection(APIView):
             DocNum=data.DocNum,
             DocDate=data.DocDate,
             Comments=(data.Comments or "").strip(),
+            JrnlMemo=(data.JrnlMemo or "").strip(),
         )
         await o.asave()
         return InventoryGoodsIssueResponse(
@@ -1649,6 +1741,7 @@ class InventoryGoodsIssueCollection(APIView):
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1670,6 +1763,7 @@ class InventoryGoodsIssueDetail(APIView):
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1687,17 +1781,21 @@ class InventoryGoodsIssueDetail(APIView):
             o.DocDate = data.DocDate
         if data.Comments is not None:
             o.Comments = data.Comments.strip()
+        if data.JrnlMemo is not None:
+            o.JrnlMemo = data.JrnlMemo.strip()
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(resync_all_ige_lines, int(doc_entry))
         return InventoryGoodsIssueResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1711,11 +1809,13 @@ class InventoryGoodsIssueDetail(APIView):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(resync_all_ige_lines, int(doc_entry))
         return InventoryGoodsIssueResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
+            JrnlMemo=o.JrnlMemo or "",
             Canceled=o.Canceled,
         )
 
@@ -1726,7 +1826,7 @@ class InventoryGoodsIssueLineCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> InventoryGoodsIssueLinePage:
+    async def get(self, request: Request) -> InventoryGoodsIssueLinePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -1794,6 +1894,7 @@ class InventoryGoodsIssueLineCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _run_document_stock_sync(sync_goods_issue_line_stock, int(o.header_id), int(o.LineNum))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1871,6 +1972,7 @@ class InventoryGoodsIssueLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
+        await _run_document_stock_sync(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1899,6 +2001,7 @@ class InventoryGoodsIssueLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
+        await _run_document_stock_sync(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1920,7 +2023,7 @@ class StockTakeCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTakePage:
+    async def get(self, request: Request) -> StockTakePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -2028,7 +2131,7 @@ class StockTakeLineCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> StockTakeLinePage:
+    async def get(self, request: Request) -> StockTakeLinePage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -2206,7 +2309,7 @@ class InventoryPostingCollection(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> InventoryPostingPage:
+    async def get(self, request: Request) -> InventoryPostingPage:
         qd = getattr(self.request, "query", None) or {}
         try:
             limit = min(100, max(1, int(qd.get("limit", "50"))))
@@ -2249,17 +2352,21 @@ class InventoryPostingCollection(APIView):
 
     async def post(self, data: InventoryPostingCreateBody) -> InventoryPostingResponse:
         dt = data.DocTime if data.DocTime is not None else timezone.now()
-        o = OINM(
-            TransType=int(data.TransType),
-            ItemCode=data.ItemCode.strip(),
-            Warehouse=data.Warehouse.strip(),
-            InQty=Decimal(str(data.InQty or "0")),
-            OutQty=Decimal(str(data.OutQty or "0")),
-            Price=Decimal(str(data.Price or "0")),
-            BASE_REF=(data.BASE_REF or "").strip(),
-            DocTime=dt,
-        )
-        await o.asave()
+        try:
+            o = await sync_to_async(post_oinm_and_apply_stock)(
+                trans_type=int(data.TransType),
+                item_code=data.ItemCode.strip(),
+                warehouse=data.Warehouse.strip(),
+                in_qty=Decimal(str(data.InQty or "0")),
+                out_qty=Decimal(str(data.OutQty or "0")),
+                price=Decimal(str(data.Price or "0")),
+                base_ref=(data.BASE_REF or "").strip(),
+                doc_time=dt,
+            )
+        except ValidationError as exc:
+            msgs = list(getattr(exc, "messages", []))
+            detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+            raise BadRequest(detail=detail) from exc
         return InventoryPostingResponse(
             TransNum=o.TransNum,
             TransType=o.TransType,
@@ -2307,6 +2414,40 @@ class InventoryPostingDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+
+        if o.Canceled == "N" and (
+            data.ItemCode is not None
+            or data.Warehouse is not None
+            or data.InQty is not None
+            or data.OutQty is not None
+        ):
+            raise BadRequest(
+                detail=(
+                    "Active ledger rows cannot change item, warehouse, or quantities. "
+                    "Cancel this row and post a new movement (SAP B1–style)."
+                )
+            )
+
+        if data.Canceled is not None:
+            c = (data.Canceled or "N").strip().upper()[:1] or "N"
+            if c not in ("Y", "N"):
+                raise BadRequest(detail="Canceled must be Y or N.")
+            if c == "Y" and o.Canceled == "N":
+                try:
+                    await sync_to_async(reverse_oinm_stock)(o)
+                except ValidationError as exc:
+                    msgs = list(getattr(exc, "messages", []))
+                    detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+                    raise BadRequest(detail=detail) from exc
+            elif c == "N" and o.Canceled == "Y":
+                try:
+                    await sync_to_async(reactivate_oinm_stock)(o)
+                except ValidationError as exc:
+                    msgs = list(getattr(exc, "messages", []))
+                    detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+                    raise BadRequest(detail=detail) from exc
+            o.Canceled = c
+
         if data.TransType is not None:
             o.TransType = int(data.TransType)
         if data.ItemCode is not None:
@@ -2323,11 +2464,6 @@ class InventoryPostingDetail(APIView):
             o.BASE_REF = data.BASE_REF.strip()
         if data.DocTime is not None:
             o.DocTime = data.DocTime
-        if data.Canceled is not None:
-            c = (data.Canceled or "N").strip().upper()[:1] or "N"
-            if c not in ("Y", "N"):
-                raise BadRequest(detail="Canceled must be Y or N.")
-            o.Canceled = c
         await o.asave()
         return InventoryPostingResponse(
             TransNum=o.TransNum,
@@ -2350,6 +2486,13 @@ class InventoryPostingDetail(APIView):
         qd = getattr(self.request, "query", None) or {}
         if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        if o.Canceled == "N":
+            try:
+                await sync_to_async(reverse_oinm_stock)(o)
+            except ValidationError as exc:
+                msgs = list(getattr(exc, "messages", []))
+                detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+                raise BadRequest(detail=detail) from exc
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
         return InventoryPostingResponse(

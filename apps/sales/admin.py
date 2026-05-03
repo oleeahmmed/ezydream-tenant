@@ -20,7 +20,17 @@ class _SalesLineTabularInline(TabularInline):
 
 class QUT1Inline(_SalesLineTabularInline):
     model = QUT1
-    fields = ("LineNum", "ItemCode", "Dscription", "Quantity", "Price", "WhsCode", "LineTotal", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "Price",
+        "DiscPrcnt",
+        "WhsCode",
+        "LineTotal",
+        "Canceled",
+    )
 
 
 class RDR1Inline(_SalesLineTabularInline):
@@ -42,17 +52,56 @@ class RDR1Inline(_SalesLineTabularInline):
 
 class DLN1Inline(_SalesLineTabularInline):
     model = DLN1
-    fields = ("LineNum", "ItemCode", "Quantity", "WhsCode", "BaseType", "BaseEntry", "BaseLine", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class RDN1Inline(_SalesLineTabularInline):
     model = RDN1
-    fields = ("LineNum", "ItemCode", "Quantity", "WhsCode", "BaseEntry", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class INV1Inline(_SalesLineTabularInline):
     model = INV1
-    fields = ("LineNum", "ItemCode", "Quantity", "Price", "LineTotal", "BaseType", "BaseEntry", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class _SalesDocAdmin(ErpModelAdmin):
@@ -131,15 +180,47 @@ class OQUTAdmin(_SalesDocAdmin):
     """Sales quotations."""
 
     inlines = (QUT1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "DocStatus", "DocDate", "DocTotal", "Canceled")
-    list_filter = ("DocStatus", "DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    list_display = (
+        "DocEntry",
+        "DocNum",
+        "CardCode",
+        "DocStatus",
+        "DocDate",
+        "DocDueDate",
+        "DocTotal",
+        "Canceled",
+    )
+    list_filter = ("DocStatus", "DocDate", "DocDueDate", "Canceled")
+    search_fields = ("CardCode", "CardName", "NumAtCard", "DocNum", "CntctPrsn", "Comments")
 
-    def _document_extra(self):
-        return ("DocStatus", "DocDate")
-
-    def _amount_fields(self):
-        return ("DocTotal",)
+    def get_fieldsets(self, request, obj=None):
+        if obj is not None:
+            doc_rows = (
+                ("DocEntry", "DocNum"),
+                ("DocStatus", "DocDate"),
+                ("DocDueDate", "TaxDate"),
+            )
+        else:
+            doc_rows = (
+                ("DocNum", "DocStatus"),
+                ("DocDate", "DocDueDate"),
+                ("TaxDate",),
+            )
+        bp_rows = (
+            ("CardCode", "CardName"),
+            ("CntctPrsn", "DocCur"),
+            ("NumAtCard",),
+        )
+        totals_rows = (("DocTotal", "VatSum"), ("DiscSum",))
+        other_rows = (("Comments",), ("SlpCode", "OwnerCode"))
+        status_rows = (("Canceled",),)
+        return (
+            (_("Document"), {"fields": doc_rows, "classes": ("tab",)}),
+            (_("Customer / commercial"), {"fields": bp_rows, "classes": ("tab",)}),
+            (_("Totals"), {"fields": totals_rows, "classes": ("tab",)}),
+            (_("Remarks & ownership"), {"fields": other_rows, "classes": ("tab",)}),
+            (_("Status"), {"fields": status_rows, "classes": ("tab",)}),
+        )
 
 
 @admin.register(ORDR)
@@ -195,15 +276,47 @@ class ODLNAdmin(_SalesDocAdmin):
     """Deliveries."""
 
     inlines = (DLN1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "Canceled")
-    list_filter = ("DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    list_display = (
+        "DocEntry",
+        "DocNum",
+        "CardCode",
+        "DocStatus",
+        "DocDate",
+        "DocDueDate",
+        "DocTotal",
+        "Canceled",
+    )
+    list_filter = ("DocStatus", "DocDate", "DocDueDate", "Canceled")
+    search_fields = ("CardCode", "CardName", "NumAtCard", "DocNum", "CntctPrsn", "Comments")
 
-    def _document_extra(self):
-        return ("DocDate",)
-
-    def _amount_fields(self):
-        return ()
+    def get_fieldsets(self, request, obj=None):
+        if obj is not None:
+            doc_rows = (
+                ("DocEntry", "DocNum"),
+                ("DocStatus", "DocDate"),
+                ("DocDueDate", "TaxDate"),
+            )
+        else:
+            doc_rows = (
+                ("DocNum", "DocStatus"),
+                ("DocDate", "DocDueDate"),
+                ("TaxDate",),
+            )
+        bp_rows = (
+            ("CardCode", "CardName"),
+            ("CntctPrsn", "DocCur"),
+            ("NumAtCard",),
+        )
+        totals_rows = (("DocTotal", "VatSum"), ("DiscSum",))
+        other_rows = (("Comments",), ("SlpCode", "OwnerCode"))
+        status_rows = (("Canceled",),)
+        return (
+            (_("Document"), {"fields": doc_rows, "classes": ("tab",)}),
+            (_("Customer / commercial"), {"fields": bp_rows, "classes": ("tab",)}),
+            (_("Totals"), {"fields": totals_rows, "classes": ("tab",)}),
+            (_("Remarks & ownership"), {"fields": other_rows, "classes": ("tab",)}),
+            (_("Status"), {"fields": status_rows, "classes": ("tab",)}),
+        )
 
 
 @admin.register(ORDN)
@@ -211,15 +324,47 @@ class ORDNAdmin(_SalesDocAdmin):
     """Returns."""
 
     inlines = (RDN1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "CardName", "Canceled")
-    list_filter = ("Canceled",)
-    search_fields = ("CardCode", "CardName", "DocNum")
+    list_display = (
+        "DocEntry",
+        "DocNum",
+        "CardCode",
+        "DocStatus",
+        "DocDate",
+        "DocDueDate",
+        "DocTotal",
+        "Canceled",
+    )
+    list_filter = ("DocStatus", "DocDate", "DocDueDate", "Canceled")
+    search_fields = ("CardCode", "CardName", "NumAtCard", "DocNum", "CntctPrsn", "Comments")
 
-    def _document_extra(self):
-        return ()
-
-    def _amount_fields(self):
-        return ()
+    def get_fieldsets(self, request, obj=None):
+        if obj is not None:
+            doc_rows = (
+                ("DocEntry", "DocNum"),
+                ("DocStatus", "DocDate"),
+                ("DocDueDate", "TaxDate"),
+            )
+        else:
+            doc_rows = (
+                ("DocNum", "DocStatus"),
+                ("DocDate", "DocDueDate"),
+                ("TaxDate",),
+            )
+        bp_rows = (
+            ("CardCode", "CardName"),
+            ("CntctPrsn", "DocCur"),
+            ("NumAtCard",),
+        )
+        totals_rows = (("DocTotal", "VatSum"), ("DiscSum",))
+        other_rows = (("Comments",), ("SlpCode", "OwnerCode"))
+        status_rows = (("Canceled",),)
+        return (
+            (_("Document"), {"fields": doc_rows, "classes": ("tab",)}),
+            (_("Customer / commercial"), {"fields": bp_rows, "classes": ("tab",)}),
+            (_("Totals"), {"fields": totals_rows, "classes": ("tab",)}),
+            (_("Remarks & ownership"), {"fields": other_rows, "classes": ("tab",)}),
+            (_("Status"), {"fields": status_rows, "classes": ("tab",)}),
+        )
 
 
 @admin.register(OINV)
@@ -227,12 +372,45 @@ class OINVAdmin(_SalesDocAdmin):
     """A/R invoices."""
 
     inlines = (INV1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "DocTotal", "VatSum", "Canceled")
-    list_filter = ("DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    list_display = (
+        "DocEntry",
+        "DocNum",
+        "CardCode",
+        "DocDate",
+        "DocDueDate",
+        "DocTotal",
+        "VatSum",
+        "DiscSum",
+        "Canceled",
+    )
+    list_filter = ("DocDate", "DocDueDate", "Canceled")
+    search_fields = ("CardCode", "CardName", "NumAtCard", "DocNum", "CntctPrsn", "Comments")
 
-    def _document_extra(self):
-        return ("DocDate",)
-
-    def _amount_fields(self):
-        return ("DocTotal", "VatSum")
+    def get_fieldsets(self, request, obj=None):
+        if obj is not None:
+            doc_rows = (
+                ("DocEntry", "DocNum"),
+                ("DocDate", "DocDueDate"),
+                ("TaxDate",),
+            )
+        else:
+            doc_rows = (
+                ("DocNum",),
+                ("DocDate", "DocDueDate"),
+                ("TaxDate",),
+            )
+        bp_rows = (
+            ("CardCode", "CardName"),
+            ("CntctPrsn", "DocCur"),
+            ("NumAtCard",),
+        )
+        totals_rows = (("DocTotal", "VatSum"), ("DiscSum",))
+        other_rows = (("Comments",), ("SlpCode", "OwnerCode"))
+        status_rows = (("Canceled",),)
+        return (
+            (_("Document"), {"fields": doc_rows, "classes": ("tab",)}),
+            (_("Customer / commercial"), {"fields": bp_rows, "classes": ("tab",)}),
+            (_("Totals"), {"fields": totals_rows, "classes": ("tab",)}),
+            (_("Remarks & ownership"), {"fields": other_rows, "classes": ("tab",)}),
+            (_("Status"), {"fields": status_rows, "classes": ("tab",)}),
+        )

@@ -22,6 +22,7 @@ from django.utils import timezone
 from django_bolt import BoltAPI
 from django_bolt.auth import AllowAny, IsAuthenticated, JWTAuthentication, Token
 from django_bolt.exceptions import BadRequest, HTTPException, Unauthorized
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
 from .serializers import (
@@ -248,12 +249,12 @@ class AuthMe(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> CurrentUserResponse:
-        ctx = (self.request.get("auth") if hasattr(self.request, "get") else None) or {}
+    async def get(self, request: Request) -> CurrentUserResponse:
+        ctx = (request.get("auth") if hasattr(request, "get") else None) or {}
         claims = ctx.get("auth_claims") or {}
         if claims.get("typ") not in (None, "access"):
             raise Unauthorized(detail="Use access token, not refresh")
-        u = self.request.user
+        u = request.user
         pk = getattr(u, "pk", None)
         if pk is None:
             raise Unauthorized(detail="Authentication required")

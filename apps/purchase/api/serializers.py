@@ -319,6 +319,7 @@ class VendorReturnPatchBody(Serializer):
     CardCode: str | None = field(default=None)
     CardName: str | None = field(default=None)
     DocDate: date | None = field(default=None)
+    DocStatus: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 

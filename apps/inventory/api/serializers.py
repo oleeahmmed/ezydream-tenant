@@ -55,6 +55,13 @@ class ItemResponse(Serializer):
     IsCommited: str
     OnOrder: str
     ByWh: str
+    DfltWH: str = field(default="")
+    FrgnName: str = field(default="")
+    CodeBars: str = field(default="")
+    SalItem: str = field(default="Y")
+    PrchseItem: str = field(default="Y")
+    SalUnitMsr: str = field(default="")
+    BuyUnitMsr: str = field(default="")
     ValidFor: str
 
 
@@ -77,6 +84,13 @@ class ItemCreateBody(Serializer):
     IsCommited: str = field(default="0")
     OnOrder: str = field(default="0")
     ByWh: str = field(default="N")
+    DfltWH: str = field(default="")
+    FrgnName: str = field(default="")
+    CodeBars: str = field(default="")
+    SalItem: str = field(default="Y")
+    PrchseItem: str = field(default="Y")
+    SalUnitMsr: str = field(default="")
+    BuyUnitMsr: str = field(default="")
 
 
 
@@ -89,6 +103,13 @@ class ItemPatchBody(Serializer):
     IsCommited: str | None = field(default=None)
     OnOrder: str | None = field(default=None)
     ByWh: str | None = field(default=None)
+    DfltWH: str | None = field(default=None)
+    FrgnName: str | None = field(default=None)
+    CodeBars: str | None = field(default=None)
+    SalItem: str | None = field(default=None)
+    PrchseItem: str | None = field(default=None)
+    SalUnitMsr: str | None = field(default=None)
+    BuyUnitMsr: str | None = field(default=None)
     ValidFor: str | None = field(default=None)
 
 
@@ -100,6 +121,10 @@ class ItemWarehouseStockResponse(Serializer):
     OnHand: str
     IsCommited: str
     AvgPrice: str
+    OrderQty: str = field(default="0")
+    MinStock: str = field(default="0")
+    MaxStock: str = field(default="0")
+    Locked: str = field(default="N")
     Canceled: str
 
 
@@ -119,6 +144,10 @@ class ItemWarehouseStockCreateBody(Serializer):
     OnHand: str = field(default="0")
     IsCommited: str = field(default="0")
     AvgPrice: str = field(default="0")
+    OrderQty: str = field(default="0")
+    MinStock: str = field(default="0")
+    MaxStock: str = field(default="0")
+    Locked: str = field(default="N")
 
 
 
@@ -127,6 +156,10 @@ class ItemWarehouseStockPatchBody(Serializer):
     OnHand: str | None = field(default=None)
     IsCommited: str | None = field(default=None)
     AvgPrice: str | None = field(default=None)
+    OrderQty: str | None = field(default=None)
+    MinStock: str | None = field(default=None)
+    MaxStock: str | None = field(default=None)
+    Locked: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -174,6 +207,7 @@ class StockTransferRequestResponse(Serializer):
     DocDate: date
     Filler: str
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
     Canceled: str
 
 
@@ -192,6 +226,7 @@ class StockTransferRequestCreateBody(Serializer):
     DocDate: date
     Filler: str
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
 
 
 
@@ -201,6 +236,7 @@ class StockTransferRequestPatchBody(Serializer):
     DocDate: date | None = field(default=None)
     Filler: str | None = field(default=None)
     Comments: str | None = field(default=None)
+    JrnlMemo: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -221,6 +257,7 @@ class StockTransferRequestLineResponse(Serializer):
     BaseRef: str = field(default="")
     BaseType: int | None = field(default=None)
     BaseEntry: int | None = field(default=None)
+    BaseLine: int | None = field(default=None)
     Canceled: str
 
 
@@ -249,6 +286,7 @@ class StockTransferRequestLineCreateBody(Serializer):
     BaseRef: str = field(default="")
     BaseType: int | None = field(default=None)
     BaseEntry: int | None = field(default=None)
+    BaseLine: int | None = field(default=None)
 
 
 
@@ -266,6 +304,7 @@ class StockTransferRequestLinePatchBody(Serializer):
     BaseRef: str | None = field(default=None)
     BaseType: int | None = field(default=None)
     BaseEntry: int | None = field(default=None)
+    BaseLine: int | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -277,6 +316,7 @@ class StockTransferResponse(Serializer):
     DocDate: date
     Filler: str
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
     Canceled: str
 
 
@@ -295,6 +335,7 @@ class StockTransferCreateBody(Serializer):
     DocDate: date
     Filler: str
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
 
 
 
@@ -304,6 +345,7 @@ class StockTransferPatchBody(Serializer):
     DocDate: date | None = field(default=None)
     Filler: str | None = field(default=None)
     Comments: str | None = field(default=None)
+    JrnlMemo: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -314,6 +356,7 @@ class StockTransferLineResponse(Serializer):
     LineNum: int
     ItemCode: str
     Quantity: str
+    FromWhsCod: str
     WhsCode: str
     Price: str
     Canceled: str
@@ -334,6 +377,7 @@ class StockTransferLineCreateBody(Serializer):
     LineNum: int
     ItemCode: str
     Quantity: str
+    FromWhsCod: str = field(default="")
     WhsCode: str
     Price: str = field(default="0")
 
@@ -343,6 +387,7 @@ class StockTransferLineCreateBody(Serializer):
 class StockTransferLinePatchBody(Serializer):
     ItemCode: str | None = field(default=None)
     Quantity: str | None = field(default=None)
+    FromWhsCod: str | None = field(default=None)
     WhsCode: str | None = field(default=None)
     Price: str | None = field(default=None)
     Canceled: str | None = field(default=None)
@@ -355,6 +400,7 @@ class InventoryGoodsReceiptResponse(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
     Canceled: str
 
 
@@ -372,6 +418,7 @@ class InventoryGoodsReceiptCreateBody(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
 
 
 
@@ -380,6 +427,7 @@ class InventoryGoodsReceiptPatchBody(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date | None = field(default=None)
     Comments: str | None = field(default=None)
+    JrnlMemo: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -440,6 +488,7 @@ class InventoryGoodsIssueResponse(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
     Canceled: str
 
 
@@ -457,6 +506,7 @@ class InventoryGoodsIssueCreateBody(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date
     Comments: str = field(default="")
+    JrnlMemo: str = field(default="")
 
 
 
@@ -465,6 +515,7 @@ class InventoryGoodsIssuePatchBody(Serializer):
     DocNum: int | None = field(default=None)
     DocDate: date | None = field(default=None)
     Comments: str | None = field(default=None)
+    JrnlMemo: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 

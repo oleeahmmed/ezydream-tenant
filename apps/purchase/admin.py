@@ -18,27 +18,104 @@ class _PurchaseLineTabularInline(TabularInline):
 
 class PRQ1Inline(_PurchaseLineTabularInline):
     model = PRQ1
-    fields = ("LineNum", "ItemCode", "Dscription", "Quantity", "WhsCode", "LineStatus", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "OpenQty",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "Currency",
+        "VatGroup",
+        "WhsCode",
+        "LineStatus",
+        "Canceled",
+    )
 
 
 class POR1Inline(_PurchaseLineTabularInline):
     model = POR1
-    fields = ("LineNum", "ItemCode", "Quantity", "Price", "WhsCode", "BaseType", "BaseEntry", "BaseLine", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "OpenQty",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "Currency",
+        "VatGroup",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class PDN1Inline(_PurchaseLineTabularInline):
     model = PDN1
-    fields = ("LineNum", "ItemCode", "Quantity", "Price", "WhsCode", "BaseType", "BaseEntry", "BaseLine", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "OpenQty",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "Currency",
+        "VatGroup",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class RPC1Inline(_PurchaseLineTabularInline):
     model = RPC1
-    fields = ("LineNum", "ItemCode", "Quantity", "Price", "WhsCode", "BaseType", "BaseEntry", "BaseLine", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "OpenQty",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "Currency",
+        "VatGroup",
+        "WhsCode",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class PCH1Inline(_PurchaseLineTabularInline):
     model = PCH1
-    fields = ("LineNum", "ItemCode", "Quantity", "Price", "LineTotal", "BaseType", "BaseEntry", "Canceled")
+    fields = (
+        "LineNum",
+        "ItemCode",
+        "Dscription",
+        "Quantity",
+        "OpenQty",
+        "Price",
+        "DiscPrcnt",
+        "LineTotal",
+        "Currency",
+        "VatGroup",
+        "BaseType",
+        "BaseEntry",
+        "BaseLine",
+        "Canceled",
+    )
 
 
 class _PurchaseDocAdmin(ErpModelAdmin):
@@ -55,8 +132,14 @@ class _PurchaseDocAdmin(ErpModelAdmin):
         amt = self._amount_field_rows()
         if amt:
             out.append((_("Amounts"), {"fields": amt, "classes": ("tab",)}))
+        cm = self._comments_memo_field_rows()
+        if cm:
+            out.append((_("Comments & journal"), {"fields": cm, "classes": ("tab",)}))
         out.append((_("Status"), {"fields": self._status_field_rows(), "classes": ("tab",)}))
         return tuple(out)
+
+    def _comments_memo_field_rows(self):
+        return ()
 
     def _document_field_rows(self, obj):
         ext = tuple(self._document_extra())
@@ -123,10 +206,13 @@ class OPRQAdmin(_PurchaseDocAdmin):
         return ("DocDate", "DocDueDate")
 
     def _middle_fields(self):
-        return ("Requester",)
+        return ("Requester", "NumAtCard", "CntctPrsn", "DocCur", "DocRate")
+
+    def _comments_memo_field_rows(self):
+        return (("Comments",), ("JrnlMemo",))
 
     def _status_field_rows(self):
-        return (("DocStatus", "Canceled"),)
+        return (("DocStatus", "Handwrtten", "Printed", "Canceled"),)
 
 
 @admin.register(OPOR)
@@ -136,19 +222,33 @@ class OPORAdmin(_PurchaseDocAdmin):
     inlines = (POR1Inline,)
     list_display = ("DocEntry", "DocNum", "CardCode", "DocStatus", "DocDate", "DocTotal", "Canceled")
     list_filter = ("DocStatus", "DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    search_fields = ("CardCode", "CardName", "DocNum", "NumAtCard", "Comments")
 
     def _document_extra(self):
         return ("DocDate",)
 
     def _middle_fields(self):
-        return ("CardCode", "CardName")
+        return (
+            "CardCode",
+            "CardName",
+            "NumAtCard",
+            "CntctPrsn",
+            "DocCur",
+            "DocRate",
+            "DocDueDate",
+            "TaxDate",
+            "SlpCode",
+            "OwnerCode",
+        )
+
+    def _comments_memo_field_rows(self):
+        return (("Comments",), ("JrnlMemo",))
 
     def _amount_fields(self):
-        return ("DocTotal",)
+        return ("DocTotal", "DiscSum", "VatSum")
 
     def _status_field_rows(self):
-        return (("DocStatus", "Canceled"),)
+        return (("DocStatus", "Handwrtten", "Printed", "Canceled"),)
 
 
 @admin.register(OPDN)
@@ -156,18 +256,35 @@ class OPDNAdmin(_PurchaseDocAdmin):
     """Goods receipt PO (GRPO)."""
 
     inlines = (PDN1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "DocStatus", "Canceled")
+    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "DocStatus", "DocTotal", "Canceled")
     list_filter = ("DocStatus", "DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    search_fields = ("CardCode", "CardName", "DocNum", "NumAtCard", "Comments")
 
     def _document_extra(self):
         return ("DocDate",)
 
     def _middle_fields(self):
-        return ("CardCode", "CardName")
+        return (
+            "CardCode",
+            "CardName",
+            "NumAtCard",
+            "CntctPrsn",
+            "DocCur",
+            "DocRate",
+            "DocDueDate",
+            "TaxDate",
+            "SlpCode",
+            "OwnerCode",
+        )
+
+    def _comments_memo_field_rows(self):
+        return (("Comments",), ("JrnlMemo",))
+
+    def _amount_fields(self):
+        return ("DocTotal", "DiscSum", "VatSum")
 
     def _status_field_rows(self):
-        return (("DocStatus", "Canceled"),)
+        return (("DocStatus", "Handwrtten", "Printed", "Canceled"),)
 
 
 @admin.register(ORPC)
@@ -175,15 +292,35 @@ class ORPCAdmin(_PurchaseDocAdmin):
     """Goods returns to vendor."""
 
     inlines = (RPC1Inline,)
-    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "Canceled")
-    list_filter = ("DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "DocStatus", "DocTotal", "Canceled")
+    list_filter = ("DocStatus", "DocDate", "Canceled")
+    search_fields = ("CardCode", "CardName", "DocNum", "NumAtCard", "Comments")
 
     def _document_extra(self):
         return ("DocDate",)
 
     def _middle_fields(self):
-        return ("CardCode", "CardName")
+        return (
+            "CardCode",
+            "CardName",
+            "NumAtCard",
+            "CntctPrsn",
+            "DocCur",
+            "DocRate",
+            "DocDueDate",
+            "TaxDate",
+            "SlpCode",
+            "OwnerCode",
+        )
+
+    def _comments_memo_field_rows(self):
+        return (("Comments",), ("JrnlMemo",))
+
+    def _amount_fields(self):
+        return ("DocTotal", "DiscSum", "VatSum")
+
+    def _status_field_rows(self):
+        return (("DocStatus", "Handwrtten", "Printed", "Canceled"),)
 
 
 @admin.register(OPCH)
@@ -193,13 +330,30 @@ class OPCHAdmin(_PurchaseDocAdmin):
     inlines = (PCH1Inline,)
     list_display = ("DocEntry", "DocNum", "CardCode", "DocDate", "DocTotal", "VatSum", "Canceled")
     list_filter = ("DocDate", "Canceled")
-    search_fields = ("CardCode", "CardName", "DocNum")
+    search_fields = ("CardCode", "CardName", "DocNum", "NumAtCard", "Comments")
 
     def _document_extra(self):
         return ("DocDate",)
 
     def _middle_fields(self):
-        return ("CardCode", "CardName")
+        return (
+            "CardCode",
+            "CardName",
+            "NumAtCard",
+            "CntctPrsn",
+            "DocCur",
+            "DocRate",
+            "DocDueDate",
+            "TaxDate",
+            "SlpCode",
+            "OwnerCode",
+        )
+
+    def _comments_memo_field_rows(self):
+        return (("Comments",), ("JrnlMemo",))
 
     def _amount_fields(self):
-        return ("DocTotal", "VatSum")
+        return ("DocTotal", "DiscSum", "VatSum")
+
+    def _status_field_rows(self):
+        return (("DocStatus", "Handwrtten", "Printed", "Canceled"),)

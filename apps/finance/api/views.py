@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from asgiref.sync import sync_to_async
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django_bolt import BoltAPI
@@ -17,7 +18,13 @@ from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
 from django_bolt.views import APIView
 
+from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
 from apps.finance.models import BGT1, JDT1, OACT, OBGT, OJDT, OFPR, OPRC, ORCT, OSTC, OVPM, RCT1, VPM1
+from apps.finance.services.auto_journal import (
+    clear_document_journal,
+    sync_incoming_payment_journal,
+    sync_outgoing_payment_journal,
+)
 
 from .serializers import (
     BudgetLineCreateBody,
@@ -86,6 +93,22 @@ def _read_pagination(request: Any) -> tuple[int, int, str]:
         offset = 0
     search_prefix = (qd.get("q") or "").strip()
     return limit, offset, search_prefix
+
+
+async def _bp_recalc_cards(*card_codes: str | None) -> None:
+    for cc in card_codes:
+        s = (cc or "").strip()
+        if s:
+            await sync_to_async(recalculate_bp_rollups)(s)
+
+
+async def _finance_journal_sync(fn, *args) -> None:
+    try:
+        await sync_to_async(fn)(*args)
+    except ValidationError as exc:
+        msgs = list(getattr(exc, "messages", []))
+        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
+        raise BadRequest(detail=detail) from exc
 
 
 def _yn(name: str, v: str | None) -> str:
@@ -552,6 +575,8 @@ class IncomingPaymentCollection(APIView):
             CashSum=Decimal(str(data.CashSum or "0")),
         )
         await o.asave()
+        await _finance_journal_sync(sync_incoming_payment_journal, int(o.DocEntry))
+        await _bp_recalc_cards(o.CardCode)
         return IncomingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -589,6 +614,7 @@ class IncomingPaymentDetail(APIView):
             o = await ORCT.objects.aget(pk=doc_entry)
         except ORCT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
+        old_cc = o.CardCode.strip()
         if data.CardCode is not None:
             o.CardCode = data.CardCode.strip()
         if data.CardName is not None:
@@ -603,7 +629,14 @@ class IncomingPaymentDetail(APIView):
             o.DocTotal = Decimal(str(data.DocTotal))
         if data.CashSum is not None:
             o.CashSum = Decimal(str(data.CashSum))
+        if data.DocStatus is not None:
+            st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+            if st not in ("O", "C"):
+                raise BadRequest(detail="DocStatus must be O or C.")
+            o.DocStatus = st
         await o.asave()
+        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
+        await _bp_recalc_cards(old_cc, o.CardCode)
         return IncomingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -630,7 +663,10 @@ class IncomingPaymentDetail(APIView):
             DocTotal=str(o.DocTotal),
             CashSum=str(o.CashSum),
         )
+        old_cc = o.CardCode.strip()
+        await sync_to_async(clear_document_journal)("ORCT", int(doc_entry))
         await o.adelete()
+        await _bp_recalc_cards(old_cc)
         return rep
 
 
@@ -676,6 +712,7 @@ class IncomingPaymentLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _finance_journal_sync(sync_incoming_payment_journal, int(line.header_id))
         return IncomingPaymentLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -714,6 +751,7 @@ class IncomingPaymentLineDetail(APIView):
         if data.InvType is not None:
             o.InvType = int(data.InvType)
         await o.asave()
+        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
         return IncomingPaymentLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -735,6 +773,7 @@ class IncomingPaymentLineDetail(APIView):
             InvType=o.InvType,
         )
         await o.adelete()
+        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
         return rep
 
 
@@ -777,6 +816,7 @@ class OutgoingPaymentCollection(APIView):
             DocTotal=Decimal(str(data.DocTotal or "0")),
         )
         await o.asave()
+        await _finance_journal_sync(sync_outgoing_payment_journal, int(o.DocEntry))
         return OutgoingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -828,7 +868,13 @@ class OutgoingPaymentDetail(APIView):
             o.TrsfrSum = Decimal(str(data.TrsfrSum))
         if data.DocTotal is not None:
             o.DocTotal = Decimal(str(data.DocTotal))
+        if data.DocStatus is not None:
+            st = (data.DocStatus or "O").strip().upper()[:1] or "O"
+            if st not in ("O", "C"):
+                raise BadRequest(detail="DocStatus must be O or C.")
+            o.DocStatus = st
         await o.asave()
+        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
         return OutgoingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -855,6 +901,7 @@ class OutgoingPaymentDetail(APIView):
             TrsfrSum=str(o.TrsfrSum),
             DocTotal=str(o.DocTotal),
         )
+        await sync_to_async(clear_document_journal)("OVPM", int(doc_entry))
         await o.adelete()
         return rep
 
@@ -901,6 +948,7 @@ class OutgoingPaymentLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
+        await _finance_journal_sync(sync_outgoing_payment_journal, int(line.header_id))
         return OutgoingPaymentLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -939,6 +987,7 @@ class OutgoingPaymentLineDetail(APIView):
         if data.InvType is not None:
             o.InvType = int(data.InvType)
         await o.asave()
+        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
         return OutgoingPaymentLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -960,6 +1009,7 @@ class OutgoingPaymentLineDetail(APIView):
             InvType=o.InvType,
         )
         await o.adelete()
+        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
         return rep
 
 

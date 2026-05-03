@@ -1,0 +1,277 @@
+/* SAP B1 document window — from frontend/ui/sap2.html (subset) */
+.sap-doc-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px;
+  overflow: hidden;
+}
+
+.sap-window {
+  background: #f0f0f0;
+  border: 1px solid #888;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.sap-titlebar {
+  background: linear-gradient(180deg, #4a90c8 0%, #2d6ea0 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 10px 5px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.titlebar-btns {
+  display: flex;
+  gap: 2px;
+}
+
+.tb-btn-win {
+  width: 20px;
+  height: 18px;
+  background: #5a9dd0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  color: #fff;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.sap-toolbar-doc {
+  background: linear-gradient(180deg, #f8f8f8 0%, #e8e8e8 100%);
+  border-bottom: 1px solid #bbb;
+  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.tb-tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: #222;
+  height: 24px;
+}
+
+.tb-tool-btn:hover {
+  background: #ddeeff;
+  border-color: #aac8f0;
+}
+
+.sap-header {
+  background: #f0f0f0;
+  padding: 8px 12px 4px 12px;
+  border-bottom: 1px solid #bbb;
+  flex-shrink: 0;
+}
+
+.header-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 24px;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 3px;
+  gap: 0;
+}
+
+.field-label {
+  font-size: 11px;
+  color: #222;
+  white-space: nowrap;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.field-input {
+  border: 1px solid #bbb;
+  background: #fff;
+  height: 20px;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 0 4px;
+  outline: none;
+  min-width: 0;
+}
+
+.field-input:focus {
+  border-color: #4a90c8;
+  box-shadow: 0 0 0 1px #4a90c870;
+}
+
+.field-input.readonly {
+  background: #e8e8e8;
+  color: #444;
+}
+
+.field-input-grow {
+  flex: 1;
+  max-width: 220px;
+}
+
+.sap-tabs-bar {
+  display: flex;
+  background: #e0e0e0;
+  border-bottom: 2px solid #4a90c8;
+  padding: 0 12px;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.sap-tab {
+  padding: 5px 18px;
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: #444;
+  position: relative;
+  bottom: -2px;
+  border-radius: 3px 3px 0 0;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sap-tab:hover {
+  background: #d0d8e8;
+  color: #000;
+}
+
+.sap-tab.active {
+  background: #f0f0f0;
+  border-color: #4a90c8;
+  border-bottom-color: #f0f0f0;
+  color: #000;
+  font-weight: 600;
+  z-index: 2;
+}
+
+.tab-panel {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-panel.active {
+  display: flex;
+}
+
+.grid-wrap {
+  overflow: auto;
+  border: 1px solid #bbb;
+  margin: 6px 12px;
+  background: #fff;
+  flex: 1;
+  min-height: 80px;
+}
+
+.sap-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 520px;
+  table-layout: auto;
+}
+
+.sap-table thead th {
+  background: linear-gradient(180deg, #e8e8e8 0%, #d8d8d8 100%);
+  border-right: 1px solid #bbb;
+  border-bottom: 2px solid #aaa;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: left;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sap-table tbody td {
+  border-right: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 1px 4px;
+  font-size: 11px;
+  height: 20px;
+  white-space: nowrap;
+}
+
+.sap-table tbody tr:hover td {
+  background: #ddeeff;
+}
+
+.sap-table tbody tr.selected td {
+  background: #b8d4f0;
+}
+
+.sap-actionbar {
+  background: #e8e8e8;
+  border-top: 1px solid #bbb;
+  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sap-btn {
+  background: linear-gradient(180deg, #f4f4f4 0%, #e0e0e0 100%);
+  border: 1px solid #aaa;
+  padding: 2px 14px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 2px;
+  height: 22px;
+}
+
+.sap-btn:hover {
+  background: linear-gradient(180deg, #ddeeff 0%, #b8d4f0 100%);
+  border-color: #4a90c8;
+}
+
+.sap-btn.primary {
+  background: linear-gradient(180deg, #5aace0 0%, #3a88c0 100%);
+  color: #fff;
+  border-color: #2a78b0;
+}
+
+.sap-msg {
+  font-size: 11px;
+  color: #1a6a1a;
+  margin-left: 8px;
+}
+
+.sap-msg.err {
+  color: #a02020;
+}

@@ -134,6 +134,15 @@ UNFOLD = {
                 ],
             },
             {
+                "title": "Business partners",
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    _nav_item("BP groups (OCRG)", "groups", "tenant_businesspartner", "ocrg"),
+                    _nav_item("Business partners (OCRD)", "contacts", "tenant_businesspartner", "ocrd"),
+                ],
+            },
+            {
                 "title": "Inventory",
                 "separator": True,
                 "collapsible": True,

@@ -25,6 +25,7 @@ SHARED_APPS = [
     "apps.purchase",
     "apps.production",
     "apps.finance",
+    "apps.businesspartner",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
@@ -41,6 +42,7 @@ TENANT_APPS = [
     "apps.purchase",
     "apps.production",
     "apps.finance",
+    "apps.businesspartner",
 ]
 
 # Password-reset token validity (hours)
@@ -141,5 +143,19 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- Automatic G/L journal (OJDT/JDT1) from sales / purchase / payment APIs ---
+# Set to existing OACT.AcctCode values (Postable=Y, Frozen=N). Required for auto-posting.
+FINANCE_GL_AR = os.getenv("FINANCE_GL_AR", "")
+FINANCE_GL_SALES_REVENUE = os.getenv("FINANCE_GL_SALES_REVENUE", "")
+# Optional: omit or leave empty if all invoices have VatSum=0
+FINANCE_GL_OUTPUT_VAT = os.getenv("FINANCE_GL_OUTPUT_VAT", "")
+FINANCE_GL_AP = os.getenv("FINANCE_GL_AP", "")
+FINANCE_GL_PURCHASE_EXPENSE = os.getenv("FINANCE_GL_PURCHASE_EXPENSE", "")
+FINANCE_GL_INPUT_VAT = os.getenv("FINANCE_GL_INPUT_VAT", "")
+# Cash/bank default when payment header does not specify a valid G/L account
+FINANCE_GL_CASH = os.getenv("FINANCE_GL_CASH", "")
+# When true (default), auto journals require DocDate in an unlocked OFPR row if any OFPR exists
+FINANCE_ENFORCE_OFPR = os.getenv("FINANCE_ENFORCE_OFPR", "true").lower() in ("1", "true", "yes")
 
 from ..unfold_settings import UNFOLD  # noqa: E402

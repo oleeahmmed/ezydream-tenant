@@ -48,6 +48,8 @@ class OITT(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
         help_text="Base quantity (e.g. per 1 finished unit).",
     )
+    TreeName = models.CharField(ui.BOM_DISPLAY_NAME, max_length=200, blank=True, default="", db_index=True)
+    Locked = models.CharField(ui.BOM_HEADER_LOCKED, max_length=1, default="N", db_index=True)
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -58,6 +60,8 @@ class OITT(models.Model):
     def clean(self) -> None:
         _tree_type(self.TreeType)
         _canceled_yn(self.Canceled)
+        if self.Locked not in ("Y", "N"):
+            raise ValidationError({"Locked": "Use Y or N."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -79,6 +83,9 @@ class ITT1(models.Model):
     LineNum = models.IntegerField(ui.LINE_NO)
     ItemCode = models.CharField(ui.ITEM_CODE, max_length=50, db_index=True, db_column="Code")
     Quantity = models.DecimalField(ui.QUANTITY, max_digits=19, decimal_places=6)
+    Price = models.DecimalField(ui.UNIT_PRICE, max_digits=19, decimal_places=6, default=Decimal("0"))
+    Currency = models.CharField(ui.CURRENCY, max_length=3, blank=True, default="")
+    IssueMeth = models.CharField(ui.ISSUE_METHOD, max_length=1, default="M", db_index=True)
     WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="Warehouse")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
@@ -92,6 +99,8 @@ class ITT1(models.Model):
 
     def clean(self) -> None:
         _canceled_yn(self.Canceled)
+        if self.IssueMeth not in ("M", "B", "L"):
+            raise ValidationError({"IssueMeth": "Use M (manual), B (backflush), or L (mixed)."})
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -114,7 +123,12 @@ class OWOR(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
     )
     PostDate = models.DateField(ui.POSTING_DATE, db_index=True)
+    DueDate = models.DateField(ui.PRODUCTION_DUE_DATE, null=True, blank=True, db_index=True)
     WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="Warehouse")
+    Comments = models.TextField(ui.REMARKS, blank=True, default="")
+    Project = models.CharField(ui.PROJECT_CODE, max_length=20, blank=True, default="", db_index=True)
+    OrigType = models.IntegerField(ui.ORIGIN_TYPE, null=True, blank=True, db_index=True)
+    OrigEntry = models.IntegerField(ui.ORIGIN_ENTRY, null=True, blank=True, db_index=True)
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -152,6 +166,8 @@ class WOR1(models.Model):
         default=Decimal("0"),
         validators=[MinValueValidator(Decimal("0"))],
     )
+    VisOrder = models.IntegerField(ui.VISUAL_ORDER, default=0, db_index=True)
+    LineText = models.TextField(ui.LINE_TEXT, blank=True, default="")
     WhsCode = models.CharField(ui.WAREHOUSE, max_length=20, db_index=True, db_column="wareHouse")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 

@@ -51,7 +51,13 @@ class WarehouseCollection(APIView):
             queryset = queryset.filter(Inactive="N")
         if search_prefix:
             queryset = queryset.filter(
-                Q(WhsCode__istartswith=search_prefix) | Q(WhsName__istartswith=search_prefix)
+                Q(WhsCode__istartswith=search_prefix)
+                | Q(WhsName__istartswith=search_prefix)
+                | Q(Location__istartswith=search_prefix)
+                | Q(City__istartswith=search_prefix)
+                | Q(Street__istartswith=search_prefix)
+                | Q(ZipCode__istartswith=search_prefix)
+                | Q(E_Mail__istartswith=search_prefix)
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return WarehousePage(

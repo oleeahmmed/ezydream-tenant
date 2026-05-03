@@ -18,12 +18,12 @@ class _ProdLineTabularInline(TabularInline):
 
 class ITT1Inline(_ProdLineTabularInline):
     model = ITT1
-    fields = ("LineNum", "ItemCode", "Quantity", "WhsCode", "Canceled")
+    fields = ("LineNum", "ItemCode", "Quantity", "Price", "Currency", "IssueMeth", "WhsCode", "Canceled")
 
 
 class WOR1Inline(_ProdLineTabularInline):
     model = WOR1
-    fields = ("LineNum", "ItemCode", "PlannedQty", "IssuedQty", "WhsCode", "Canceled")
+    fields = ("LineNum", "ItemCode", "PlannedQty", "IssuedQty", "VisOrder", "LineText", "WhsCode", "Canceled")
 
 
 class _ProdDocMediaAdmin(ErpModelAdmin):
@@ -41,7 +41,7 @@ class OITTAdmin(_ProdDocMediaAdmin):
     search_fields = ("Code",)
 
     fieldsets = (
-        (_("BOM"), {"fields": (("Code", "TreeType"), ("Quantity", "Canceled")), "classes": ("tab",)}),
+        (_("BOM"), {"fields": (("Code", "TreeType"), ("TreeName", "Quantity", "Locked", "Canceled")), "classes": ("tab",)}),
     )
 
 
@@ -59,7 +59,9 @@ class OWORAdmin(_ProdDocMediaAdmin):
         return (
             (_("Document"), {"fields": (doc,), "classes": ("tab",)}),
             (_("Item & warehouse"), {"fields": (("ItemCode", "WhsCode"),), "classes": ("tab",)}),
-            (_("Quantities & status"), {"fields": (("Status", "PlannedQty"), ("CmpltQty", "PostDate")), "classes": ("tab",)}),
+            (_("Dates & project"), {"fields": (("PostDate", "DueDate"), ("Project",), ("OrigType", "OrigEntry")), "classes": ("tab",)}),
+            (_("Quantities & status"), {"fields": (("Status", "PlannedQty"), ("CmpltQty",)), "classes": ("tab",)}),
+            (_("Remarks"), {"fields": (("Comments",),), "classes": ("tab",)}),
             (_("Other"), {"fields": (("Canceled",),), "classes": ("tab",)}),
         )
 

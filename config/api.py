@@ -11,6 +11,7 @@ from django_bolt.middleware import DjangoMiddleware
 from django_tenants.middleware.main import TenantMainMiddleware
 
 from apps.auth.api import attach_auth_routes
+from apps.businesspartner.api import attach_businesspartner_routes
 from apps.finance.api.views import attach_finance_routes
 from apps.inventory.api import attach_inventory_routes
 from apps.production.api import attach_production_routes
@@ -30,4 +31,5 @@ attach_inventory_routes(api)
 attach_sales_routes(api)
 attach_purchase_routes(api)
 attach_production_routes(api)
+attach_businesspartner_routes(api)
 api.mount_django("/", get_asgi_application(), clear_root_path=True)

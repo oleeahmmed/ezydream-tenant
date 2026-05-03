@@ -34,6 +34,11 @@ def _dim_code(value: int) -> None:
         raise ValidationError({"DimCode": "Dimension must be 1–5."})
 
 
+def _doc_status_fi(value: str) -> None:
+    if value not in ("O", "C"):
+        raise ValidationError({"DocStatus": "Use O (open) or C (closed)."})
+
+
 class OACT(models.Model):
     """OACT — Chart of accounts."""
 
@@ -50,6 +55,11 @@ class OACT(models.Model):
     FatherNum = models.CharField(ui.FATHER_ACCOUNT, max_length=20, blank=True, default="", db_index=True)
     Postable = models.CharField(ui.POSTING_ALLOWED, max_length=1, default="Y", db_index=True)
     LocCash = models.CharField(ui.CASH_ACCOUNT_FLAG, max_length=1, default="N", db_index=True)
+    ValidFor = models.CharField(ui.VALID_FOR, max_length=1, default="Y", db_index=True)
+    Frozen = models.CharField(ui.FROZEN, max_length=1, default="N", db_index=True)
+    Levels = models.PositiveSmallIntegerField(ui.GL_LEVELS, default=1)
+    ExportCode = models.CharField(ui.EXPORT_CODE, max_length=20, blank=True, default="", db_index=True)
+    AcctFixed = models.CharField(ui.FIXED_ASSET_ACCOUNT, max_length=1, default="N", db_index=True)
 
     class Meta:
         db_table = "OACT"
@@ -60,6 +70,9 @@ class OACT(models.Model):
         _group_mask(int(self.GroupMask))
         _yn(self.Postable, "Postable")
         _yn(self.LocCash, "LocCash")
+        _yn(self.ValidFor, "ValidFor")
+        _yn(self.Frozen, "Frozen")
+        _yn(self.AcctFixed, "AcctFixed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -73,6 +86,7 @@ class OPRC(models.Model):
     PrcName = models.CharField(ui.PROFIT_CENTER_NAME, max_length=200)
     DimCode = models.PositiveSmallIntegerField(ui.DIMENSION_NO)
     Active = models.CharField(ui.ACTIVE, max_length=1, default="Y", db_index=True)
+    PrcFather = models.CharField(ui.CENTER_PARENT, max_length=20, blank=True, default="", db_index=True)
 
     class Meta:
         db_table = "OPRC"
@@ -96,6 +110,11 @@ class OJDT(models.Model):
     RefDate = models.DateField(ui.POSTING_DATE, db_index=True)
     TransType = models.IntegerField(ui.TRANSACTION_TYPE, db_index=True)
     Memo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    Ref1 = models.CharField(ui.JOURNAL_REF_1, max_length=100, blank=True, default="", db_index=True)
+    Ref2 = models.CharField(ui.JOURNAL_REF_2, max_length=100, blank=True, default="", db_index=True)
+    DueDate = models.DateField(ui.JOURNAL_DUE_DATE, null=True, blank=True, db_index=True)
+    TransCode = models.IntegerField(ui.TRANS_CODE, null=True, blank=True, db_index=True)
+    Project = models.CharField(ui.PROJECT_CODE, max_length=20, blank=True, default="", db_index=True)
 
     class Meta:
         db_table = "OJDT"
@@ -132,6 +151,13 @@ class JDT1(models.Model):
         validators=[MinValueValidator(Decimal("0"))],
     )
     ProfitCode = models.CharField(ui.PROFIT_CENTER_CODE, max_length=20, blank=True, default="", db_index=True)
+    LineMemo = models.TextField(ui.LINE_MEMO, blank=True, default="")
+    Ref1 = models.CharField(ui.JOURNAL_REF_1, max_length=100, blank=True, default="", db_index=True)
+    Ref2 = models.CharField(ui.JOURNAL_REF_2, max_length=100, blank=True, default="", db_index=True)
+    Ref3Line = models.CharField(ui.LINE_REF_3, max_length=100, blank=True, default="", db_index=True)
+    DueDate = models.DateField(ui.LINE_DUE_DATE, null=True, blank=True, db_index=True)
+    VatGroup = models.CharField(ui.VAT_GROUP_SALES, max_length=8, blank=True, default="", db_index=True)
+    OcrCode = models.CharField(ui.OCR_CODE, max_length=11, blank=True, default="", db_index=True)
 
     class Meta:
         db_table = "JDT1"
@@ -162,11 +188,25 @@ class ORCT(models.Model):
         default=Decimal("0"),
         validators=[MinValueValidator(Decimal("0"))],
     )
+    DocStatus = models.CharField(ui.PAYMENT_DOC_STATUS, max_length=1, default="O", db_index=True)
+    TrsfrAcct = models.CharField(ui.TRANSFER_ACCOUNT, max_length=20, blank=True, default="", db_index=True)
+    CheckSum = models.DecimalField(
+        ui.CHECK_SUM,
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    Comments = models.TextField(ui.REMARKS, blank=True, default="")
+    JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
 
     class Meta:
         db_table = "ORCT"
         verbose_name = _("Incoming payment")
         verbose_name_plural = _("Incoming payments")
+
+    def clean(self) -> None:
+        _doc_status_fi(self.DocStatus)
 
 
 class RCT1(models.Model):
@@ -226,11 +266,18 @@ class OVPM(models.Model):
         default=Decimal("0"),
         validators=[MinValueValidator(Decimal("0"))],
     )
+    DocStatus = models.CharField(ui.PAYMENT_DOC_STATUS, max_length=1, default="O", db_index=True)
+    TrsfrAcct = models.CharField(ui.TRANSFER_ACCOUNT, max_length=20, blank=True, default="", db_index=True)
+    Comments = models.TextField(ui.REMARKS, blank=True, default="")
+    JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
 
     class Meta:
         db_table = "OVPM"
         verbose_name = _("Outgoing payment")
         verbose_name_plural = _("Outgoing payments")
+
+    def clean(self) -> None:
+        _doc_status_fi(self.DocStatus)
 
 
 class VPM1(models.Model):
@@ -274,11 +321,17 @@ class OSTC(models.Model):
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
     )
     Account = models.CharField(ui.TAX_ACCOUNT, max_length=20, blank=True, default="", db_index=True)
+    ValidFor = models.CharField(ui.VALID_FOR, max_length=1, default="Y", db_index=True)
+    Frozen = models.CharField(ui.FROZEN, max_length=1, default="N", db_index=True)
 
     class Meta:
         db_table = "OSTC"
         verbose_name = _("Tax code")
         verbose_name_plural = _("Tax codes")
+
+    def clean(self) -> None:
+        _yn(self.ValidFor, "ValidFor")
+        _yn(self.Frozen, "Frozen")
 
 
 class OFPR(models.Model):
