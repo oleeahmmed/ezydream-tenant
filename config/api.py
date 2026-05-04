@@ -11,6 +11,7 @@ from django_bolt.middleware import DjangoMiddleware
 from django_tenants.middleware.main import TenantMainMiddleware
 
 from apps.auth.api import attach_auth_routes
+from apps.core.api import attach_core_routes
 from apps.businesspartner.api import attach_businesspartner_routes
 from apps.finance.api.views import attach_finance_routes
 from apps.inventory.api import attach_inventory_routes
@@ -25,6 +26,7 @@ api = BoltAPI(
     ],
 )
 attach_auth_routes(api)
+attach_core_routes(api)
 attach_finance_routes(api)
 attach_warehouse_routes(api)
 attach_inventory_routes(api)

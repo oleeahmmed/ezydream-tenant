@@ -42,10 +42,11 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 AUTH_API_PREFIX = "/api/auth"
-_MIN_PASSWORD_LEN = 8
+MIN_PASSWORD_LENGTH_CHARACTERS = 8
 
 
-def _access_token(user: User) -> str:
+def encode_jwt_access_token_for_user(user: User) -> str:
+    """Build a short-lived HS256 JWT with ``typ: access`` for Bolt ``Authorization``."""
     sec = int(getattr(settings, "AUTH_ACCESS_TOKEN_SECONDS", 3600))
     exp = datetime.now(UTC) + timedelta(seconds=sec)
     return Token(
@@ -55,7 +56,8 @@ def _access_token(user: User) -> str:
     ).encode(secret=settings.SECRET_KEY, algorithm="HS256")
 
 
-def _refresh_token(user: User) -> str:
+def encode_jwt_refresh_token_for_user(user: User) -> str:
+    """Build a longer-lived refresh token JWT with ``typ: refresh``."""
     sec = int(getattr(settings, "AUTH_REFRESH_TOKEN_SECONDS", 60 * 60 * 24 * 7))
     exp = datetime.now(UTC) + timedelta(seconds=sec)
     return Token(
@@ -65,12 +67,14 @@ def _refresh_token(user: User) -> str:
     ).encode(secret=settings.SECRET_KEY, algorithm="HS256")
 
 
-def _otp_digits() -> str:
+def generate_numeric_otp_code_string() -> str:
+    """Random digits for email OTP; length is clamped by settings."""
     n = max(4, min(10, int(getattr(settings, "AUTH_OTP_LENGTH", 6))))
     return f"{secrets.randbelow(10**n):0{n}d}"
 
 
-def _send_login_otp_email(to_email: str, code: str) -> None:
+def send_login_otp_email_with_code(to_email: str, code: str) -> None:
+    """Send the OTP message using Django's email backend (sync; wrap with sync_to_async in views)."""
     subject = getattr(settings, "AUTH_LOGIN_OTP_SUBJECT", "Your login verification code")
     body = (
         f"Your one-time login code is: {code}\n\n"
@@ -86,7 +90,8 @@ def _send_login_otp_email(to_email: str, code: str) -> None:
     )
 
 
-def _decode_refresh(raw: str) -> dict:
+def decode_refresh_token_jwt_claims(raw: str) -> dict:
+    """Decode and validate a refresh JWT; raises ``Unauthorized`` on bad signature or expiry."""
     try:
         return jwt.decode(
             raw.strip(),
@@ -98,27 +103,29 @@ def _decode_refresh(raw: str) -> dict:
         raise Unauthorized(detail="Invalid or expired refresh token") from e
 
 
-class _Public(APIView):
+class AuthPublicEndpointBaseView(APIView):
+    """Bolt views that must stay reachable without a Bearer token (register, login, …)."""
+
     auth: list = []
     guards = [AllowAny()]
 
 
-class AuthRegister(_Public):
+class AuthRegister(AuthPublicEndpointBaseView):
     async def post(self, data: RegisterBody) -> MessageResponse:
         email, pw = data.email.strip().lower(), data.password
         if not email or not pw:
             raise BadRequest(detail="email and password are required")
         if "@" not in email or "." not in email.split("@")[-1]:
             raise BadRequest(detail="invalid email")
-        if len(pw) < _MIN_PASSWORD_LEN:
-            raise BadRequest(detail=f"password must be at least {_MIN_PASSWORD_LEN} characters")
+        if len(pw) < MIN_PASSWORD_LENGTH_CHARACTERS:
+            raise BadRequest(detail=f"password must be at least {MIN_PASSWORD_LENGTH_CHARACTERS} characters")
         if await User.objects.filter(email=email).aexists():
             raise BadRequest(detail="email already registered")
         await sync_to_async(User.objects.create_user)(email=email, password=pw)
         return MessageResponse(detail="registered")
 
 
-class AuthLogin(_Public):
+class AuthLogin(AuthPublicEndpointBaseView):
     async def post(self, data: LoginBody) -> LoginTokenResponse:
         email, pw = data.email.strip().lower(), data.password
         if not email or not pw:
@@ -128,14 +135,14 @@ class AuthLogin(_Public):
             raise Unauthorized(detail="invalid email or password")
 
         if user.otp_enabled:
-            code = _otp_digits()
+            code = generate_numeric_otp_code_string()
             user.login_otp_hash = make_password(code)
             user.login_otp_expires_at = timezone.now() + timedelta(
                 seconds=int(getattr(settings, "AUTH_OTP_VALID_SECONDS", 600))
             )
             await user.asave(update_fields=["login_otp_hash", "login_otp_expires_at"])
             try:
-                await sync_to_async(_send_login_otp_email)(user.email, code)
+                await sync_to_async(send_login_otp_email_with_code)(user.email, code)
             except Exception:
                 logger.exception("tenant_auth.login_otp email failed email=%s", email)
                 raise HTTPException(status_code=503, detail="Could not send OTP email") from None
@@ -148,15 +155,15 @@ class AuthLogin(_Public):
         ref_sec = int(getattr(settings, "AUTH_REFRESH_TOKEN_SECONDS", 60 * 60 * 24 * 7))
         acc_sec = int(getattr(settings, "AUTH_ACCESS_TOKEN_SECONDS", 3600))
         return LoginTokenResponse(
-            access=_access_token(user),
-            refresh=_refresh_token(user),
+            access=encode_jwt_access_token_for_user(user),
+            refresh=encode_jwt_refresh_token_for_user(user),
             token_type="Bearer",
             expires_in=acc_sec,
             refresh_expires_in=ref_sec,
         )
 
 
-class AuthVerifyLoginOtp(_Public):
+class AuthVerifyLoginOtp(AuthPublicEndpointBaseView):
     async def post(self, data: VerifyLoginOtpBody) -> LoginTokenResponse:
         email = data.email.strip().lower()
         otp = (data.otp or "").strip()
@@ -176,19 +183,19 @@ class AuthVerifyLoginOtp(_Public):
         ref_sec = int(getattr(settings, "AUTH_REFRESH_TOKEN_SECONDS", 60 * 60 * 24 * 7))
         acc_sec = int(getattr(settings, "AUTH_ACCESS_TOKEN_SECONDS", 3600))
         return LoginTokenResponse(
-            access=_access_token(user),
-            refresh=_refresh_token(user),
+            access=encode_jwt_access_token_for_user(user),
+            refresh=encode_jwt_refresh_token_for_user(user),
             token_type="Bearer",
             expires_in=acc_sec,
             refresh_expires_in=ref_sec,
         )
 
 
-class AuthTokenRefresh(_Public):
+class AuthTokenRefresh(AuthPublicEndpointBaseView):
     async def post(self, data: RefreshTokenBody) -> LoginTokenResponse:
         if not (data.refresh or "").strip():
             raise BadRequest(detail="refresh is required")
-        claims = _decode_refresh(data.refresh)
+        claims = decode_refresh_token_jwt_claims(data.refresh)
         if claims.get("typ") != "refresh":
             raise Unauthorized(detail="invalid token type")
         try:
@@ -202,7 +209,7 @@ class AuthTokenRefresh(_Public):
         acc_sec = int(getattr(settings, "AUTH_ACCESS_TOKEN_SECONDS", 3600))
         ref_sec = int(getattr(settings, "AUTH_REFRESH_TOKEN_SECONDS", 60 * 60 * 24 * 7))
         return LoginTokenResponse(
-            access=_access_token(user),
+            access=encode_jwt_access_token_for_user(user),
             refresh=data.refresh.strip(),
             token_type="Bearer",
             expires_in=acc_sec,
@@ -210,7 +217,7 @@ class AuthTokenRefresh(_Public):
         )
 
 
-class AuthForgotPassword(_Public):
+class AuthForgotPassword(AuthPublicEndpointBaseView):
     async def post(self, data: ForgotPasswordBody) -> MessageResponse:
         ok = MessageResponse(detail="If that email exists, reset instructions were sent.")
         raw = (data.email or "").strip()
@@ -229,12 +236,12 @@ class AuthForgotPassword(_Public):
         return ok
 
 
-class AuthResetPassword(_Public):
+class AuthResetPassword(AuthPublicEndpointBaseView):
     async def post(self, data: ResetPasswordBody) -> MessageResponse:
         if not data.token or not data.new_password:
             raise BadRequest(detail="token and new_password are required")
-        if len(data.new_password) < _MIN_PASSWORD_LEN:
-            raise BadRequest(detail=f"new_password must be at least {_MIN_PASSWORD_LEN} characters")
+        if len(data.new_password) < MIN_PASSWORD_LENGTH_CHARACTERS:
+            raise BadRequest(detail=f"new_password must be at least {MIN_PASSWORD_LENGTH_CHARACTERS} characters")
         u = await User.objects.filter(reset_token=data.token).afirst()
         ttl = timedelta(hours=int(getattr(settings, "AUTH_PASSWORD_RESET_HOURS", 24)))
         if not u or not u.reset_sent_at or timezone.now() - u.reset_sent_at > ttl:

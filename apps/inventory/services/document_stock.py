@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.core import b1_inventory_transtype as tt
+from apps.core import b1_field_choices as tt
 from apps.inventory.models import OINM
 from apps.inventory.services.stock_posting import post_oinm_and_apply_stock, reverse_oinm_stock
 

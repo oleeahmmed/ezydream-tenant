@@ -16,7 +16,8 @@ function toNoticeString(v: unknown): string {
   return String(v);
 }
 
-function getNotificationLevel(err: string, msg: string): "error" | "warning" | "success" | "info" {
+/** Exported for document status bar (inline message color). */
+export function documentNoticeLevel(err: string, msg: string): "error" | "warning" | "success" | "info" {
   if (err.trim()) return "error";
   const m = msg.trim();
   if (!m) return "info";
@@ -36,7 +37,7 @@ export function DocumentNotificationStrip({ err, msg }: DocumentNotificationStri
   const msgS = toNoticeString(msg).trim();
   const text = errS || msgS;
   if (!text) return null;
-  const level = getNotificationLevel(errS, msgS);
+  const level = documentNoticeLevel(errS, msgS);
   return (
     <div className={`ez-doc-notification ez-doc-notification--${level}`} role="status" aria-live="polite">
       {level === "error" ? (

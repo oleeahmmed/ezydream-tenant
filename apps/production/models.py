@@ -12,27 +12,17 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def _canceled_yn(value: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({"Canceled": "Use Y or N (SAP-style soft delete)."})
-
-
-def _tree_type(value: str) -> None:
-    if value not in ("P", "S", "A", "T"):
-        raise ValidationError({"TreeType": "Use P (Production), S (Sales), A (Assembly), or T (Template)."})
-
-
-def _wor_status(value: str) -> None:
-    if value not in ("P", "R", "L"):
-        raise ValidationError({"Status": "Use P (Planned), R (Released), or L (Closed)."})
+from apps.core.beginner_style.model_validation import (
+    validate_bom_line_issue_method_manual_backflush_or_mixed,
+    validate_production_bom_tree_type,
+    validate_production_order_status_planned_released_or_closed,
+    validate_yes_no_field,
+)
 
 
 class OITT(models.Model):
@@ -50,6 +40,8 @@ class OITT(models.Model):
     )
     TreeName = models.CharField(ui.BOM_DISPLAY_NAME, max_length=200, blank=True, default="", db_index=True)
     Locked = models.CharField(ui.BOM_HEADER_LOCKED, max_length=1, default="N", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -58,10 +50,9 @@ class OITT(models.Model):
         verbose_name_plural = _("Bills of materials")
 
     def clean(self) -> None:
-        _tree_type(self.TreeType)
-        _canceled_yn(self.Canceled)
-        if self.Locked not in ("Y", "N"):
-            raise ValidationError({"Locked": "Use Y or N."})
+        validate_production_bom_tree_type(self.TreeType)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Locked, "Locked")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -98,9 +89,8 @@ class ITT1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
-        if self.IssueMeth not in ("M", "B", "L"):
-            raise ValidationError({"IssueMeth": "Use M (manual), B (backflush), or L (mixed)."})
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_bom_line_issue_method_manual_backflush_or_mixed(self.IssueMeth)
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -129,6 +119,8 @@ class OWOR(models.Model):
     Project = models.CharField(ui.PROJECT_CODE, max_length=20, blank=True, default="", db_index=True)
     OrigType = models.IntegerField(ui.ORIGIN_TYPE, null=True, blank=True, db_index=True)
     OrigEntry = models.IntegerField(ui.ORIGIN_ENTRY, null=True, blank=True, db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -137,8 +129,8 @@ class OWOR(models.Model):
         verbose_name_plural = _("Production orders")
 
     def clean(self) -> None:
-        _wor_status(self.Status)
-        _canceled_yn(self.Canceled)
+        validate_production_order_status_planned_released_or_closed(self.Status)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -180,7 +172,7 @@ class WOR1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()

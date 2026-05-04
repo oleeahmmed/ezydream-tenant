@@ -20,6 +20,12 @@ from django_bolt.exceptions import BadRequest, NotFound
 from django_bolt.request import Request
 from django_bolt.views import APIView
 
+from apps.core.beginner_style import (
+    async_run_sync_callable_and_map_validation_error_to_bad_request,
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+    get_optional_int_from_query,
+)
 from apps.inventory.models import (
     IGN1,
     IGE1,
@@ -50,15 +56,6 @@ from apps.inventory.services import (
     sync_goods_receipt_line_stock,
     sync_transfer_line_stock,
 )
-
-
-async def _run_document_stock_sync(fn, *args) -> None:
-    try:
-        await sync_to_async(fn)(*args)
-    except ValidationError as exc:
-        msgs = list(getattr(exc, "messages", []))
-        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
-        raise BadRequest(detail=detail) from exc
 
 
 from .serializers import (
@@ -128,11 +125,12 @@ from .serializers import (
 INVENTORY_API_PREFIX = "/api/inventory"
 
 
-def _item_response(o: OITM) -> ItemResponse:
+def item_master_row_to_bolt_response(o: OITM) -> ItemResponse:
     return ItemResponse(
         ItemCode=o.ItemCode,
         ItemName=o.ItemName,
         ItmsGrpCod=o.ItmsGrpCod_id,
+        ItmsGrpNam=o.ItmsGrpCod.ItmsGrpNam,
         InvntItem=o.InvntItem,
         OnHand=str(o.OnHand),
         IsCommited=str(o.IsCommited),
@@ -149,7 +147,7 @@ def _item_response(o: OITM) -> ItemResponse:
     )
 
 
-def _item_wh_response(o: OITW) -> ItemWarehouseStockResponse:
+def item_warehouse_stock_row_to_bolt_response(o: OITW) -> ItemWarehouseStockResponse:
     return ItemWarehouseStockResponse(
         ItemCode=o.ItemCode,
         WhsCode=o.WhsCode,
@@ -164,25 +162,17 @@ def _item_wh_response(o: OITW) -> ItemWarehouseStockResponse:
     )
 
 
-class ItemGroupCollection(APIView):
+class ItemGroupListCreateView(APIView):
     """Item groups: list with optional ``q`` search, or create one row."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> ItemGroupPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OITB.objects.all().order_by("ItmsGrpCod")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             cond = Q(ItmsGrpNam__istartswith=search_prefix)
@@ -205,7 +195,7 @@ class ItemGroupCollection(APIView):
         return ItemGroupResponse(ItmsGrpCod=o.ItmsGrpCod, ItmsGrpNam=o.ItmsGrpNam, Canceled=o.Canceled)
 
 
-class ItemGroupDetail(APIView):
+class ItemGroupDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -215,7 +205,7 @@ class ItemGroupDetail(APIView):
         except OITB.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return ItemGroupResponse(ItmsGrpCod=o.ItmsGrpCod, ItmsGrpNam=o.ItmsGrpNam, Canceled=o.Canceled)
 
@@ -225,7 +215,7 @@ class ItemGroupDetail(APIView):
         except OITB.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.ItmsGrpNam is not None:
             o.ItmsGrpNam = data.ItmsGrpNam.strip()
@@ -243,32 +233,24 @@ class ItemGroupDetail(APIView):
         except OITB.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
         return ItemGroupResponse(ItmsGrpCod=o.ItmsGrpCod, ItmsGrpNam=o.ItmsGrpNam, Canceled=o.Canceled)
 
 
-class ItemCollection(APIView):
+class ItemListCreateView(APIView):
     """Item master (OITM): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> ItemPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OITM.objects.select_related("ItmsGrpCod").all().order_by("ItemCode")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(ValidFor="Y")
         if search_prefix:
             qs = qs.filter(
@@ -280,7 +262,7 @@ class ItemCollection(APIView):
             )
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return ItemPage(
-            items=[_item_response(o) for o in rows],
+            items=[item_master_row_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -320,10 +302,10 @@ class ItemCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate ItemCode.")
-        return _item_response(o)
+        return item_master_row_to_bolt_response(o)
 
 
-class ItemDetail(APIView):
+class ItemDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -334,9 +316,9 @@ class ItemDetail(APIView):
         except OITM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.ValidFor == "N":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.ValidFor == "N":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _item_response(o)
+        return item_master_row_to_bolt_response(o)
 
     async def patch(self, item_code: str, data: ItemPatchBody) -> ItemResponse:
         try:
@@ -345,7 +327,7 @@ class ItemDetail(APIView):
         except OITM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.ValidFor == "N":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.ValidFor == "N":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.ItemName is not None:
             o.ItemName = data.ItemName.strip()
@@ -398,7 +380,7 @@ class ItemDetail(APIView):
                 raise BadRequest(detail="ValidFor must be Y or N.")
             o.ValidFor = vf
         await o.asave()
-        return _item_response(o)
+        return item_master_row_to_bolt_response(o)
 
     async def delete(self, item_code: str) -> ItemResponse:
         """SAP-style: ``ValidFor='N'`` (item stays in DB)."""
@@ -408,35 +390,27 @@ class ItemDetail(APIView):
         except OITM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.ValidFor == "N":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.ValidFor == "N":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.ValidFor = "N"
         await o.asave(update_fields=["ValidFor"])
-        return _item_response(o)
+        return item_master_row_to_bolt_response(o)
 
 
-class ItemWarehouseStockCollection(APIView):
+class ItemWarehouseStockListCreateView(APIView):
     """Per-warehouse stock (OITW): list or upsert one row."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> ItemWarehouseStockPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         query_dict = getattr(self.request, "query", None) or {}
         item_code = (query_dict.get("item_code") or "").strip()
         whs_code = (query_dict.get("whs_code") or "").strip()
         qs = OITW.objects.all().order_by("WhsCode", "ItemCode")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if item_code:
             qs = qs.filter(ItemCode__istartswith=item_code)
@@ -446,7 +420,7 @@ class ItemWarehouseStockCollection(APIView):
             qs = qs.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return ItemWarehouseStockPage(
-            items=[_item_wh_response(o) for o in rows],
+            items=[item_warehouse_stock_row_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -474,10 +448,10 @@ class ItemWarehouseStockCollection(APIView):
                 "Canceled": "N",
             },
         )
-        return _item_wh_response(o)
+        return item_warehouse_stock_row_to_bolt_response(o)
 
 
-class ItemWarehouseStockDetail(APIView):
+class ItemWarehouseStockDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -487,9 +461,9 @@ class ItemWarehouseStockDetail(APIView):
         except OITW.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _item_wh_response(o)
+        return item_warehouse_stock_row_to_bolt_response(o)
 
     async def patch(self, item_code: str, whs_code: str, data: ItemWarehouseStockPatchBody) -> ItemWarehouseStockResponse:
         try:
@@ -497,7 +471,7 @@ class ItemWarehouseStockDetail(APIView):
         except OITW.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.OnHand is not None:
             o.OnHand = Decimal(str(data.OnHand))
@@ -522,7 +496,7 @@ class ItemWarehouseStockDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return _item_wh_response(o)
+        return item_warehouse_stock_row_to_bolt_response(o)
 
     async def delete(self, item_code: str, whs_code: str) -> ItemWarehouseStockResponse:
         try:
@@ -530,32 +504,24 @@ class ItemWarehouseStockDetail(APIView):
         except OITW.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return _item_wh_response(o)
+        return item_warehouse_stock_row_to_bolt_response(o)
 
 
-class UnitOfMeasureCollection(APIView):
+class UnitOfMeasureListCreateView(APIView):
     """Units of measure (OUOM): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> UnitOfMeasurePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OUOM.objects.all().order_by("UomCode")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Locked="N")
         if search_prefix:
             qs = qs.filter(Q(UomCode__istartswith=search_prefix) | Q(UomName__istartswith=search_prefix))
@@ -599,7 +565,7 @@ class UnitOfMeasureCollection(APIView):
         )
 
 
-class UnitOfMeasureDetail(APIView):
+class UnitOfMeasureDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -609,7 +575,7 @@ class UnitOfMeasureDetail(APIView):
         except OUOM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Locked == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Locked == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return UnitOfMeasureResponse(
             UomEntry=o.UomEntry,
@@ -625,7 +591,7 @@ class UnitOfMeasureDetail(APIView):
         except OUOM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Locked == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Locked == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.UomCode is not None:
             o.UomCode = data.UomCode.strip()
@@ -657,7 +623,7 @@ class UnitOfMeasureDetail(APIView):
         except OUOM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Locked == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Locked == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Locked = "Y"
         await o.asave(update_fields=["Locked"])
@@ -670,25 +636,17 @@ class UnitOfMeasureDetail(APIView):
         )
 
 
-class StockTransferRequestCollection(APIView):
+class StockTransferRequestListCreateView(APIView):
     """Inventory transfer request header (OWTQ): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTransferRequestPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OWTQ.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(Q(Filler__istartswith=search_prefix) | Q(Comments__istartswith=search_prefix))
@@ -702,6 +660,8 @@ class StockTransferRequestCollection(APIView):
                     Filler=o.Filler,
                     Comments=o.Comments or "",
                     JrnlMemo=o.JrnlMemo or "",
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -717,6 +677,8 @@ class StockTransferRequestCollection(APIView):
             Filler=data.Filler.strip()[:8],
             Comments=(data.Comments or "").strip()[:254],
             JrnlMemo=(data.JrnlMemo or "").strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
         return StockTransferRequestResponse(
@@ -726,11 +688,13 @@ class StockTransferRequestCollection(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTransferRequestDetail(APIView):
+class StockTransferRequestDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -740,7 +704,7 @@ class StockTransferRequestDetail(APIView):
         except OWTQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return StockTransferRequestResponse(
             DocEntry=o.DocEntry,
@@ -749,6 +713,8 @@ class StockTransferRequestDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -758,7 +724,7 @@ class StockTransferRequestDetail(APIView):
         except OWTQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -770,6 +736,10 @@ class StockTransferRequestDetail(APIView):
             o.Comments = data.Comments.strip()[:254]
         if data.JrnlMemo is not None:
             o.JrnlMemo = data.JrnlMemo.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -783,6 +753,8 @@ class StockTransferRequestDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -792,7 +764,7 @@ class StockTransferRequestDetail(APIView):
         except OWTQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
@@ -803,35 +775,24 @@ class StockTransferRequestDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTransferRequestLineCollection(APIView):
+class StockTransferRequestLineListCreateView(APIView):
     """Transfer request lines (WTQ1): list (optional ``doc_entry``) or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTransferRequestLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd_de = getattr(self.request, "query", None) or {}
-        raw_de = (qd_de.get("doc_entry") or "").strip()
-        try:
-            de = int(raw_de) if raw_de else None
-        except ValueError:
-            raise BadRequest(detail="doc_entry সঠিক পূর্ণসংখ্যা নয়।")
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        de = get_optional_int_from_query(self.request, "doc_entry")
         qs = WTQ1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N", header__Canceled="N")
         if de is not None:
             qs = qs.filter(header_id=de)
@@ -920,7 +881,7 @@ class StockTransferRequestLineCollection(APIView):
         )
 
 
-class StockTransferRequestLineDetail(APIView):
+class StockTransferRequestLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -930,7 +891,7 @@ class StockTransferRequestLineDetail(APIView):
         except WTQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -959,7 +920,7 @@ class StockTransferRequestLineDetail(APIView):
         except WTQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1025,7 +986,7 @@ class StockTransferRequestLineDetail(APIView):
         except WTQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1053,25 +1014,17 @@ class StockTransferRequestLineDetail(APIView):
         )
 
 
-class StockTransferCollection(APIView):
+class StockTransferListCreateView(APIView):
     """Inventory transfer header (OWTR): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTransferPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OWTR.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(Q(Filler__istartswith=search_prefix) | Q(Comments__istartswith=search_prefix))
@@ -1085,6 +1038,8 @@ class StockTransferCollection(APIView):
                     Filler=o.Filler,
                     Comments=o.Comments or "",
                     JrnlMemo=o.JrnlMemo or "",
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1100,6 +1055,8 @@ class StockTransferCollection(APIView):
             Filler=data.Filler.strip(),
             Comments=(data.Comments or "").strip(),
             JrnlMemo=(data.JrnlMemo or "").strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
         return StockTransferResponse(
@@ -1109,11 +1066,13 @@ class StockTransferCollection(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTransferDetail(APIView):
+class StockTransferDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1123,7 +1082,7 @@ class StockTransferDetail(APIView):
         except OWTR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return StockTransferResponse(
             DocEntry=o.DocEntry,
@@ -1132,6 +1091,8 @@ class StockTransferDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1141,7 +1102,7 @@ class StockTransferDetail(APIView):
         except OWTR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -1153,13 +1114,17 @@ class StockTransferDetail(APIView):
             o.Comments = data.Comments.strip()
         if data.JrnlMemo is not None:
             o.JrnlMemo = data.JrnlMemo.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(resync_all_wtr_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_wtr_lines, int(doc_entry))
         return StockTransferResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1167,6 +1132,8 @@ class StockTransferDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1176,11 +1143,11 @@ class StockTransferDetail(APIView):
         except OWTR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(resync_all_wtr_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_wtr_lines, int(doc_entry))
         return StockTransferResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1188,35 +1155,24 @@ class StockTransferDetail(APIView):
             Filler=o.Filler,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTransferLineCollection(APIView):
+class StockTransferLineListCreateView(APIView):
     """Transfer lines (WTR1): list (optional ``doc_entry``) or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTransferLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd_de = getattr(self.request, "query", None) or {}
-        raw_de = (qd_de.get("doc_entry") or "").strip()
-        try:
-            de = int(raw_de) if raw_de else None
-        except ValueError:
-            raise BadRequest(detail="doc_entry সঠিক পূর্ণসংখ্যা নয়।")
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        de = get_optional_int_from_query(self.request, "doc_entry")
         qs = WTR1.objects.select_related("header").all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N", header__Canceled="N")
         if de is not None:
             qs = qs.filter(header_id=de)
@@ -1264,7 +1220,7 @@ class StockTransferLineCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _run_document_stock_sync(sync_transfer_line_stock, int(o.header_id), int(o.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_transfer_line_stock, int(o.header_id), int(o.LineNum))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1277,7 +1233,7 @@ class StockTransferLineCollection(APIView):
         )
 
 
-class StockTransferLineDetail(APIView):
+class StockTransferLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1287,7 +1243,7 @@ class StockTransferLineDetail(APIView):
         except WTR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1308,7 +1264,7 @@ class StockTransferLineDetail(APIView):
         except WTR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1330,7 +1286,7 @@ class StockTransferLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(sync_transfer_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_transfer_line_stock, int(doc_entry), int(line_num))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1348,7 +1304,7 @@ class StockTransferLineDetail(APIView):
         except WTR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1356,7 +1312,7 @@ class StockTransferLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(sync_transfer_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_transfer_line_stock, int(doc_entry), int(line_num))
         return StockTransferLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1369,25 +1325,17 @@ class StockTransferLineDetail(APIView):
         )
 
 
-class InventoryGoodsReceiptCollection(APIView):
+class InventoryGoodsReceiptListCreateView(APIView):
     """Goods receipt header (OIGN): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> InventoryGoodsReceiptPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OIGN.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(Comments__istartswith=search_prefix)
@@ -1400,6 +1348,8 @@ class InventoryGoodsReceiptCollection(APIView):
                     DocDate=o.DocDate,
                     Comments=o.Comments or "",
                     JrnlMemo=o.JrnlMemo or "",
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1414,6 +1364,8 @@ class InventoryGoodsReceiptCollection(APIView):
             DocDate=data.DocDate,
             Comments=(data.Comments or "").strip(),
             JrnlMemo=(data.JrnlMemo or "").strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
         return InventoryGoodsReceiptResponse(
@@ -1422,11 +1374,13 @@ class InventoryGoodsReceiptCollection(APIView):
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class InventoryGoodsReceiptDetail(APIView):
+class InventoryGoodsReceiptDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1436,7 +1390,7 @@ class InventoryGoodsReceiptDetail(APIView):
         except OIGN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return InventoryGoodsReceiptResponse(
             DocEntry=o.DocEntry,
@@ -1444,6 +1398,8 @@ class InventoryGoodsReceiptDetail(APIView):
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1453,7 +1409,7 @@ class InventoryGoodsReceiptDetail(APIView):
         except OIGN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -1463,19 +1419,25 @@ class InventoryGoodsReceiptDetail(APIView):
             o.Comments = data.Comments.strip()
         if data.JrnlMemo is not None:
             o.JrnlMemo = data.JrnlMemo.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(resync_all_ign_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_ign_lines, int(doc_entry))
         return InventoryGoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1485,46 +1447,35 @@ class InventoryGoodsReceiptDetail(APIView):
         except OIGN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(resync_all_ign_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_ign_lines, int(doc_entry))
         return InventoryGoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class InventoryGoodsReceiptLineCollection(APIView):
+class InventoryGoodsReceiptLineListCreateView(APIView):
     """Goods receipt lines (IGN1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> InventoryGoodsReceiptLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd_de = getattr(self.request, "query", None) or {}
-        raw_de = (qd_de.get("doc_entry") or "").strip()
-        try:
-            de = int(raw_de) if raw_de else None
-        except ValueError:
-            raise BadRequest(detail="doc_entry সঠিক পূর্ণসংখ্যা নয়।")
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        de = get_optional_int_from_query(self.request, "doc_entry")
         qs = IGN1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N", header__Canceled="N")
         if de is not None:
             qs = qs.filter(header_id=de)
@@ -1572,7 +1523,7 @@ class InventoryGoodsReceiptLineCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(o.header_id), int(o.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_receipt_line_stock, int(o.header_id), int(o.LineNum))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1587,7 +1538,7 @@ class InventoryGoodsReceiptLineCollection(APIView):
         )
 
 
-class InventoryGoodsReceiptLineDetail(APIView):
+class InventoryGoodsReceiptLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1597,7 +1548,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
         except IGN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1620,7 +1571,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
         except IGN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1646,7 +1597,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1666,7 +1617,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
         except IGN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1674,7 +1625,7 @@ class InventoryGoodsReceiptLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_receipt_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1689,25 +1640,17 @@ class InventoryGoodsReceiptLineDetail(APIView):
         )
 
 
-class InventoryGoodsIssueCollection(APIView):
+class InventoryGoodsIssueListCreateView(APIView):
     """Goods issue header (OIGE): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> InventoryGoodsIssuePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OIGE.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(Comments__istartswith=search_prefix)
@@ -1720,6 +1663,8 @@ class InventoryGoodsIssueCollection(APIView):
                     DocDate=o.DocDate,
                     Comments=o.Comments or "",
                     JrnlMemo=o.JrnlMemo or "",
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1734,6 +1679,8 @@ class InventoryGoodsIssueCollection(APIView):
             DocDate=data.DocDate,
             Comments=(data.Comments or "").strip(),
             JrnlMemo=(data.JrnlMemo or "").strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
         return InventoryGoodsIssueResponse(
@@ -1742,11 +1689,13 @@ class InventoryGoodsIssueCollection(APIView):
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class InventoryGoodsIssueDetail(APIView):
+class InventoryGoodsIssueDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1756,7 +1705,7 @@ class InventoryGoodsIssueDetail(APIView):
         except OIGE.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return InventoryGoodsIssueResponse(
             DocEntry=o.DocEntry,
@@ -1764,6 +1713,8 @@ class InventoryGoodsIssueDetail(APIView):
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1773,7 +1724,7 @@ class InventoryGoodsIssueDetail(APIView):
         except OIGE.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -1783,19 +1734,25 @@ class InventoryGoodsIssueDetail(APIView):
             o.Comments = data.Comments.strip()
         if data.JrnlMemo is not None:
             o.JrnlMemo = data.JrnlMemo.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(resync_all_ige_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_ige_lines, int(doc_entry))
         return InventoryGoodsIssueResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1805,46 +1762,35 @@ class InventoryGoodsIssueDetail(APIView):
         except OIGE.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(resync_all_ige_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_ige_lines, int(doc_entry))
         return InventoryGoodsIssueResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             DocDate=o.DocDate,
             Comments=o.Comments or "",
             JrnlMemo=o.JrnlMemo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class InventoryGoodsIssueLineCollection(APIView):
+class InventoryGoodsIssueLineListCreateView(APIView):
     """Goods issue lines (IGE1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> InventoryGoodsIssueLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd_de = getattr(self.request, "query", None) or {}
-        raw_de = (qd_de.get("doc_entry") or "").strip()
-        try:
-            de = int(raw_de) if raw_de else None
-        except ValueError:
-            raise BadRequest(detail="doc_entry সঠিক পূর্ণসংখ্যা নয়।")
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        de = get_optional_int_from_query(self.request, "doc_entry")
         qs = IGE1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N", header__Canceled="N")
         if de is not None:
             qs = qs.filter(header_id=de)
@@ -1894,7 +1840,7 @@ class InventoryGoodsIssueLineCollection(APIView):
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _run_document_stock_sync(sync_goods_issue_line_stock, int(o.header_id), int(o.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_issue_line_stock, int(o.header_id), int(o.LineNum))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1910,7 +1856,7 @@ class InventoryGoodsIssueLineCollection(APIView):
         )
 
 
-class InventoryGoodsIssueLineDetail(APIView):
+class InventoryGoodsIssueLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1920,7 +1866,7 @@ class InventoryGoodsIssueLineDetail(APIView):
         except IGE1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1944,7 +1890,7 @@ class InventoryGoodsIssueLineDetail(APIView):
         except IGE1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1972,7 +1918,7 @@ class InventoryGoodsIssueLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _run_document_stock_sync(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1993,7 +1939,7 @@ class InventoryGoodsIssueLineDetail(APIView):
         except IGE1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -2001,7 +1947,7 @@ class InventoryGoodsIssueLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _run_document_stock_sync(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_goods_issue_line_stock, int(doc_entry), int(line_num))
         return InventoryGoodsIssueLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -2017,25 +1963,17 @@ class InventoryGoodsIssueLineDetail(APIView):
         )
 
 
-class StockTakeCollection(APIView):
+class StockTakeListCreateView(APIView):
     """Inventory posting / count header (OINC): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTakePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OINC.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         rows = await sync_to_async(list)(qs[offset : offset + limit])
         return StockTakePage(
@@ -2044,6 +1982,8 @@ class StockTakeCollection(APIView):
                     DocEntry=o.DocEntry,
                     DocNum=o.DocNum,
                     CountDate=o.CountDate,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -2053,17 +1993,24 @@ class StockTakeCollection(APIView):
         )
 
     async def post(self, data: StockTakeCreateBody) -> StockTakeResponse:
-        o = OINC(DocNum=data.DocNum, CountDate=data.CountDate)
+        o = OINC(
+            DocNum=data.DocNum,
+            CountDate=data.CountDate,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
+        )
         await o.asave()
         return StockTakeResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CountDate=o.CountDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTakeDetail(APIView):
+class StockTakeDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -2073,12 +2020,14 @@ class StockTakeDetail(APIView):
         except OINC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return StockTakeResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CountDate=o.CountDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -2088,12 +2037,16 @@ class StockTakeDetail(APIView):
         except OINC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
         if data.CountDate is not None:
             o.CountDate = data.CountDate
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -2104,6 +2057,8 @@ class StockTakeDetail(APIView):
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CountDate=o.CountDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -2113,7 +2068,7 @@ class StockTakeDetail(APIView):
         except OINC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
@@ -2121,35 +2076,24 @@ class StockTakeDetail(APIView):
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CountDate=o.CountDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class StockTakeLineCollection(APIView):
+class StockTakeLineListCreateView(APIView):
     """Inventory posting lines (INC1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> StockTakeLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd_de = getattr(self.request, "query", None) or {}
-        raw_de = (qd_de.get("doc_entry") or "").strip()
-        try:
-            de = int(raw_de) if raw_de else None
-        except ValueError:
-            raise BadRequest(detail="doc_entry সঠিক পূর্ণসংখ্যা নয়।")
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        de = get_optional_int_from_query(self.request, "doc_entry")
         qs = INC1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N", header__Canceled="N")
         if de is not None:
             qs = qs.filter(header_id=de)
@@ -2208,7 +2152,7 @@ class StockTakeLineCollection(APIView):
         )
 
 
-class StockTakeLineDetail(APIView):
+class StockTakeLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -2218,7 +2162,7 @@ class StockTakeLineDetail(APIView):
         except INC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -2240,7 +2184,7 @@ class StockTakeLineDetail(APIView):
         except INC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -2282,7 +2226,7 @@ class StockTakeLineDetail(APIView):
         except INC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -2303,25 +2247,17 @@ class StockTakeLineDetail(APIView):
         )
 
 
-class InventoryPostingCollection(APIView):
+class InventoryPostingListCreateView(APIView):
     """Stock ledger (OINM): list or append one movement row."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, request: Request) -> InventoryPostingPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OINM.objects.all().order_by("-TransNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(
@@ -2342,6 +2278,8 @@ class InventoryPostingCollection(APIView):
                     Price=str(o.Price),
                     BASE_REF=o.BASE_REF or "",
                     DocTime=o.DocTime,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -2367,6 +2305,9 @@ class InventoryPostingCollection(APIView):
             msgs = list(getattr(exc, "messages", []))
             detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
             raise BadRequest(detail=detail) from exc
+        o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
+        await o.asave(update_fields=["U_UserFld1", "U_UserFld2"])
         return InventoryPostingResponse(
             TransNum=o.TransNum,
             TransType=o.TransType,
@@ -2377,11 +2318,13 @@ class InventoryPostingCollection(APIView):
             Price=str(o.Price),
             BASE_REF=o.BASE_REF or "",
             DocTime=o.DocTime,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class InventoryPostingDetail(APIView):
+class InventoryPostingDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -2391,7 +2334,7 @@ class InventoryPostingDetail(APIView):
         except OINM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return InventoryPostingResponse(
             TransNum=o.TransNum,
@@ -2403,6 +2346,8 @@ class InventoryPostingDetail(APIView):
             Price=str(o.Price),
             BASE_REF=o.BASE_REF or "",
             DocTime=o.DocTime,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -2412,7 +2357,7 @@ class InventoryPostingDetail(APIView):
         except OINM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
 
         if o.Canceled == "N" and (
@@ -2464,6 +2409,10 @@ class InventoryPostingDetail(APIView):
             o.BASE_REF = data.BASE_REF.strip()
         if data.DocTime is not None:
             o.DocTime = data.DocTime
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         await o.asave()
         return InventoryPostingResponse(
             TransNum=o.TransNum,
@@ -2475,6 +2424,8 @@ class InventoryPostingDetail(APIView):
             Price=str(o.Price),
             BASE_REF=o.BASE_REF or "",
             DocTime=o.DocTime,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -2484,7 +2435,7 @@ class InventoryPostingDetail(APIView):
         except OINM.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and o.Canceled == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if o.Canceled == "N":
             try:
@@ -2505,6 +2456,8 @@ class InventoryPostingDetail(APIView):
             Price=str(o.Price),
             BASE_REF=o.BASE_REF or "",
             DocTime=o.DocTime,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -2514,170 +2467,170 @@ def attach_inventory_routes(api: BoltAPI) -> None:
 
     tag = ["inventory"]
     # Human-readable paths (legacy SAP-style paths kept for compatibility).
-    api.view(INVENTORY_API_PREFIX + "/item-groups", methods=["GET", "POST"], status_code=200, tags=tag)(ItemGroupCollection)
+    api.view(INVENTORY_API_PREFIX + "/item-groups", methods=["GET", "POST"], status_code=200, tags=tag)(ItemGroupListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/item-groups/{itms_grp_cod}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ItemGroupDetail)
-    api.view(INVENTORY_API_PREFIX + "/items", methods=["GET", "POST"], status_code=200, tags=tag)(ItemCollection)
+    )(ItemGroupDetailView)
+    api.view(INVENTORY_API_PREFIX + "/items", methods=["GET", "POST"], status_code=200, tags=tag)(ItemListCreateView)
     api.view(INVENTORY_API_PREFIX + "/items/{item_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ItemDetail
+        ItemDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/item-warehouse-stock", methods=["GET", "POST"], status_code=200, tags=tag)(ItemWarehouseStockCollection)
+    api.view(INVENTORY_API_PREFIX + "/item-warehouse-stock", methods=["GET", "POST"], status_code=200, tags=tag)(ItemWarehouseStockListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/item-warehouse-stock/{item_code}/{whs_code}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ItemWarehouseStockDetail)
-    api.view(INVENTORY_API_PREFIX + "/units-of-measure", methods=["GET", "POST"], status_code=200, tags=tag)(UnitOfMeasureCollection)
+    )(ItemWarehouseStockDetailView)
+    api.view(INVENTORY_API_PREFIX + "/units-of-measure", methods=["GET", "POST"], status_code=200, tags=tag)(UnitOfMeasureListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/units-of-measure/{uom_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(UnitOfMeasureDetail)
-    api.view(INVENTORY_API_PREFIX + "/stock-transfer-requests", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestCollection)
+    )(UnitOfMeasureDetailView)
+    api.view(INVENTORY_API_PREFIX + "/stock-transfer-requests", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-transfer-requests/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTransferRequestDetail)
+    )(StockTransferRequestDetailView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-transfer-request-lines",
         methods=["GET", "POST"],
         status_code=200,
         tags=tag,
-    )(StockTransferRequestLineCollection)
+    )(StockTransferRequestLineListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-transfer-request-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTransferRequestLineDetail)
-    api.view(INVENTORY_API_PREFIX + "/stock-transfers", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferCollection)
+    )(StockTransferRequestLineDetailView)
+    api.view(INVENTORY_API_PREFIX + "/stock-transfers", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-transfers/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTransferDetail)
-    api.view(INVENTORY_API_PREFIX + "/stock-transfer-lines", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferLineCollection)
+    )(StockTransferDetailView)
+    api.view(INVENTORY_API_PREFIX + "/stock-transfer-lines", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferLineListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-transfer-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTransferLineDetail)
-    api.view(INVENTORY_API_PREFIX + "/goods-receipts", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptCollection)
+    )(StockTransferLineDetailView)
+    api.view(INVENTORY_API_PREFIX + "/goods-receipts", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/goods-receipts/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(InventoryGoodsReceiptDetail)
-    api.view(INVENTORY_API_PREFIX + "/goods-receipt-lines", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptLineCollection)
+    )(InventoryGoodsReceiptDetailView)
+    api.view(INVENTORY_API_PREFIX + "/goods-receipt-lines", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptLineListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/goods-receipt-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(InventoryGoodsReceiptLineDetail)
-    api.view(INVENTORY_API_PREFIX + "/goods-issues", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueCollection)
+    )(InventoryGoodsReceiptLineDetailView)
+    api.view(INVENTORY_API_PREFIX + "/goods-issues", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/goods-issues/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(InventoryGoodsIssueDetail)
-    api.view(INVENTORY_API_PREFIX + "/goods-issue-lines", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueLineCollection)
+    )(InventoryGoodsIssueDetailView)
+    api.view(INVENTORY_API_PREFIX + "/goods-issue-lines", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueLineListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/goods-issue-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(InventoryGoodsIssueLineDetail)
-    api.view(INVENTORY_API_PREFIX + "/stock-takes", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeCollection)
+    )(InventoryGoodsIssueLineDetailView)
+    api.view(INVENTORY_API_PREFIX + "/stock-takes", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-takes/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTakeDetail)
-    api.view(INVENTORY_API_PREFIX + "/stock-take-lines", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeLineCollection)
+    )(StockTakeDetailView)
+    api.view(INVENTORY_API_PREFIX + "/stock-take-lines", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeLineListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/stock-take-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(StockTakeLineDetail)
-    api.view(INVENTORY_API_PREFIX + "/inventory-postings", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryPostingCollection)
+    )(StockTakeLineDetailView)
+    api.view(INVENTORY_API_PREFIX + "/inventory-postings", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryPostingListCreateView)
     api.view(
         INVENTORY_API_PREFIX + "/inventory-postings/{trans_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(InventoryPostingDetail)
-    api.view(INVENTORY_API_PREFIX + "/oitb", methods=["GET", "POST"], status_code=200, tags=tag)(ItemGroupCollection)
+    )(InventoryPostingDetailView)
+    api.view(INVENTORY_API_PREFIX + "/oitb", methods=["GET", "POST"], status_code=200, tags=tag)(ItemGroupListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oitb/{itms_grp_cod}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ItemGroupDetail
+        ItemGroupDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oitm", methods=["GET", "POST"], status_code=200, tags=tag)(ItemCollection)
+    api.view(INVENTORY_API_PREFIX + "/oitm", methods=["GET", "POST"], status_code=200, tags=tag)(ItemListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oitm/{item_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ItemDetail
+        ItemDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oitw", methods=["GET", "POST"], status_code=200, tags=tag)(ItemWarehouseStockCollection)
+    api.view(INVENTORY_API_PREFIX + "/oitw", methods=["GET", "POST"], status_code=200, tags=tag)(ItemWarehouseStockListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oitw/{item_code}/{whs_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ItemWarehouseStockDetail
+        ItemWarehouseStockDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/ouom", methods=["GET", "POST"], status_code=200, tags=tag)(UnitOfMeasureCollection)
+    api.view(INVENTORY_API_PREFIX + "/ouom", methods=["GET", "POST"], status_code=200, tags=tag)(UnitOfMeasureListCreateView)
     api.view(INVENTORY_API_PREFIX + "/ouom/{uom_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        UnitOfMeasureDetail
+        UnitOfMeasureDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/owtq", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestCollection)
+    api.view(INVENTORY_API_PREFIX + "/owtq", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestListCreateView)
     api.view(INVENTORY_API_PREFIX + "/owtq/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTransferRequestDetail
+        StockTransferRequestDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/wtq1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestLineCollection)
+    api.view(INVENTORY_API_PREFIX + "/wtq1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferRequestLineListCreateView)
     api.view(INVENTORY_API_PREFIX + "/wtq1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTransferRequestLineDetail
+        StockTransferRequestLineDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/owtr", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferCollection)
+    api.view(INVENTORY_API_PREFIX + "/owtr", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferListCreateView)
     api.view(INVENTORY_API_PREFIX + "/owtr/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTransferDetail
+        StockTransferDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/wtr1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferLineCollection)
+    api.view(INVENTORY_API_PREFIX + "/wtr1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTransferLineListCreateView)
     api.view(INVENTORY_API_PREFIX + "/wtr1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTransferLineDetail
+        StockTransferLineDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oign", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptCollection)
+    api.view(INVENTORY_API_PREFIX + "/oign", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oign/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        InventoryGoodsReceiptDetail
+        InventoryGoodsReceiptDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/ign1", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptLineCollection)
+    api.view(INVENTORY_API_PREFIX + "/ign1", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsReceiptLineListCreateView)
     api.view(INVENTORY_API_PREFIX + "/ign1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        InventoryGoodsReceiptLineDetail
+        InventoryGoodsReceiptLineDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oige", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueCollection)
+    api.view(INVENTORY_API_PREFIX + "/oige", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oige/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        InventoryGoodsIssueDetail
+        InventoryGoodsIssueDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/ige1", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueLineCollection)
+    api.view(INVENTORY_API_PREFIX + "/ige1", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryGoodsIssueLineListCreateView)
     api.view(INVENTORY_API_PREFIX + "/ige1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        InventoryGoodsIssueLineDetail
+        InventoryGoodsIssueLineDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oinc", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeCollection)
+    api.view(INVENTORY_API_PREFIX + "/oinc", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oinc/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTakeDetail
+        StockTakeDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/inc1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeLineCollection)
+    api.view(INVENTORY_API_PREFIX + "/inc1", methods=["GET", "POST"], status_code=200, tags=tag)(StockTakeLineListCreateView)
     api.view(INVENTORY_API_PREFIX + "/inc1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        StockTakeLineDetail
+        StockTakeLineDetailView
     )
-    api.view(INVENTORY_API_PREFIX + "/oinm", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryPostingCollection)
+    api.view(INVENTORY_API_PREFIX + "/oinm", methods=["GET", "POST"], status_code=200, tags=tag)(InventoryPostingListCreateView)
     api.view(INVENTORY_API_PREFIX + "/oinm/{trans_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        InventoryPostingDetail
+        InventoryPostingDetailView
     )

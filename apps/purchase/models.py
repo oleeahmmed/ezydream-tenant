@@ -16,21 +16,10 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def _doc_status(value: str) -> None:
-    if value not in ("O", "C"):
-        raise ValidationError({"DocStatus": "Use O (open) or C (closed)."})
-
-
-def _canceled_yn(value: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({"Canceled": "Use Y or N (SAP-style soft delete)."})
-
-
-def _yn_sap(value: str, field: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({field: "Use Y or N."})
+from apps.core.beginner_style.model_validation import (
+    validate_finance_document_status_open_or_closed,
+    validate_yes_no_field,
+)
 
 
 class OPRQ(models.Model):
@@ -73,6 +62,8 @@ class OPRQ(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -81,10 +72,10 @@ class OPRQ(models.Model):
         verbose_name_plural = _("Purchase requests")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
-        _yn_sap(self.Handwrtten, "Handwrtten")
-        _yn_sap(self.Printed, "Printed")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -146,7 +137,7 @@ class PRQ1(models.Model):
     def clean(self) -> None:
         if self.LineStatus not in ("O", "C"):
             raise ValidationError({"LineStatus": "Use O (open) or C (closed)."})
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -201,6 +192,8 @@ class OPOR(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -209,10 +202,10 @@ class OPOR(models.Model):
         verbose_name_plural = _("Purchase orders")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
-        _yn_sap(self.Handwrtten, "Handwrtten")
-        _yn_sap(self.Printed, "Printed")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -274,7 +267,7 @@ class POR1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -329,6 +322,8 @@ class OPDN(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -337,10 +332,10 @@ class OPDN(models.Model):
         verbose_name_plural = _("Goods receipt POs")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
-        _yn_sap(self.Handwrtten, "Handwrtten")
-        _yn_sap(self.Printed, "Printed")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -402,7 +397,7 @@ class PDN1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -457,6 +452,8 @@ class ORPC(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -465,10 +462,10 @@ class ORPC(models.Model):
         verbose_name_plural = _("Goods returns (vendor)")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
-        _yn_sap(self.Handwrtten, "Handwrtten")
-        _yn_sap(self.Printed, "Printed")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -530,7 +527,7 @@ class RPC1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -585,6 +582,8 @@ class OPCH(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -593,10 +592,10 @@ class OPCH(models.Model):
         verbose_name_plural = _("A/P invoices")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
-        _yn_sap(self.Handwrtten, "Handwrtten")
-        _yn_sap(self.Printed, "Printed")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -656,7 +655,7 @@ class PCH1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()

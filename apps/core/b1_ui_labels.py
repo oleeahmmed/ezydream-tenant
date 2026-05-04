@@ -35,6 +35,8 @@ CREATED_BY = _("Created By")
 REQUESTER = _("Requester")
 CANCELED = _("Canceled")
 VALID_FOR = _("Valid For")
+USER_FIELD_1 = _("User-defined field 1")
+USER_FIELD_2 = _("User-defined field 2")
 
 # --- Document lines ---
 PARENT_DOCUMENT = _("Document")

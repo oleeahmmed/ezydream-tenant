@@ -1,7 +1,8 @@
 """
-Sales Bolt API — ভিউ (``django_bolt_guide.md``: ``APIView``, ``BadRequest`` / ``NotFound``)।
+Sales Bolt API — quotations, orders, deliveries, returns, invoices (Bolt ``APIView``).
 
-সিরিয়ালাইজার: ``serializers.py``। কোনো আলাদা হেল্পার মডিউল বা ফাংশন নেই।
+List endpoints use ``get_list_pagination_for_request`` and ``get_boolean_query_flag_is_true``;
+see ``apps.core.beginner_style``. Serializers live in ``serializers.py``.
 """
 
 from __future__ import annotations
@@ -17,9 +18,16 @@ from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
-from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
+from apps.core.beginner_style import (
+    async_recalculate_business_partner_rollups_for_card_codes,
+    async_run_sync_callable_and_map_validation_error_to_bad_request,
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+    get_optional_int_from_query,
+)
 from apps.finance.services.auto_journal import sync_ar_invoice_journal
 from apps.inventory.services import (
     rebuild_oitw_committed_and_on_order,
@@ -77,29 +85,11 @@ from .serializers import (
 SALES_API_PREFIX = "/api/sales"
 
 
-async def _sales_stock_sync_exc(fn, *args) -> None:
-    try:
-        await sync_to_async(fn)(*args)
-    except ValidationError as exc:
-        msgs = list(getattr(exc, "messages", []))
-        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
-        raise BadRequest(detail=detail) from exc
-
-
-async def _bp_recalc_cards(*card_codes: str | None) -> None:
-    seen: set[str] = set()
-    for raw in card_codes:
-        cc = (raw or "").strip()
-        if cc and cc not in seen:
-            seen.add(cc)
-            await sync_to_async(recalculate_bp_rollups)(cc)
-
-
-async def _rebuild_so_po_totals() -> None:
+async def async_rebuild_inventory_open_totals_after_sales_change() -> None:
     await sync_to_async(rebuild_oitw_committed_and_on_order)()
 
 
-def _sales_order_response(o: ORDR) -> SalesOrderResponse:
+def sales_order_header_to_bolt_response(o: ORDR) -> SalesOrderResponse:
     return SalesOrderResponse(
         DocEntry=o.DocEntry,
         DocNum=o.DocNum,
@@ -118,11 +108,13 @@ def _sales_order_response(o: ORDR) -> SalesOrderResponse:
         Comments=o.Comments or "",
         SlpCode=o.SlpCode,
         OwnerCode=o.OwnerCode or "",
+        U_UserFld1=o.U_UserFld1 or "",
+        U_UserFld2=o.U_UserFld2 or "",
         Canceled=o.Canceled,
     )
 
 
-def _sales_order_line_response(o: RDR1) -> SalesOrderLineResponse:
+def sales_order_line_to_bolt_response(o: RDR1) -> SalesOrderLineResponse:
     return SalesOrderLineResponse(
         DocEntry=o.header_id,
         LineNum=o.LineNum,
@@ -139,7 +131,7 @@ def _sales_order_line_response(o: RDR1) -> SalesOrderLineResponse:
     )
 
 
-def _sales_quotation_response(o: OQUT) -> SalesQuotationResponse:
+def sales_quotation_header_to_bolt_response(o: OQUT) -> SalesQuotationResponse:
     return SalesQuotationResponse(
         DocEntry=o.DocEntry,
         DocNum=o.DocNum,
@@ -158,11 +150,13 @@ def _sales_quotation_response(o: OQUT) -> SalesQuotationResponse:
         Comments=o.Comments or "",
         SlpCode=o.SlpCode,
         OwnerCode=o.OwnerCode or "",
+        U_UserFld1=o.U_UserFld1 or "",
+        U_UserFld2=o.U_UserFld2 or "",
         Canceled=o.Canceled,
     )
 
 
-def _sales_quotation_line_response(o: QUT1) -> SalesQuotationLineResponse:
+def sales_quotation_line_to_bolt_response(o: QUT1) -> SalesQuotationLineResponse:
     return SalesQuotationLineResponse(
         DocEntry=o.header_id,
         LineNum=o.LineNum,
@@ -177,7 +171,7 @@ def _sales_quotation_line_response(o: QUT1) -> SalesQuotationLineResponse:
     )
 
 
-def _delivery_note_response(o: ODLN) -> DeliveryNoteResponse:
+def delivery_note_header_to_bolt_response(o: ODLN) -> DeliveryNoteResponse:
     return DeliveryNoteResponse(
         DocEntry=o.DocEntry,
         DocNum=o.DocNum,
@@ -196,11 +190,13 @@ def _delivery_note_response(o: ODLN) -> DeliveryNoteResponse:
         Comments=o.Comments or "",
         SlpCode=o.SlpCode,
         OwnerCode=o.OwnerCode or "",
+        U_UserFld1=o.U_UserFld1 or "",
+        U_UserFld2=o.U_UserFld2 or "",
         Canceled=o.Canceled,
     )
 
 
-def _delivery_line_response(o: DLN1) -> DeliveryLineResponse:
+def delivery_note_line_to_bolt_response(o: DLN1) -> DeliveryLineResponse:
     return DeliveryLineResponse(
         DocEntry=o.header_id,
         LineNum=o.LineNum,
@@ -218,7 +214,7 @@ def _delivery_line_response(o: DLN1) -> DeliveryLineResponse:
     )
 
 
-def _customer_return_response(o: ORDN) -> CustomerReturnResponse:
+def customer_return_header_to_bolt_response(o: ORDN) -> CustomerReturnResponse:
     return CustomerReturnResponse(
         DocEntry=o.DocEntry,
         DocNum=o.DocNum,
@@ -237,11 +233,13 @@ def _customer_return_response(o: ORDN) -> CustomerReturnResponse:
         Comments=o.Comments or "",
         SlpCode=o.SlpCode,
         OwnerCode=o.OwnerCode or "",
+        U_UserFld1=o.U_UserFld1 or "",
+        U_UserFld2=o.U_UserFld2 or "",
         Canceled=o.Canceled,
     )
 
 
-def _customer_return_line_response(o: RDN1) -> CustomerReturnLineResponse:
+def customer_return_line_to_bolt_response(o: RDN1) -> CustomerReturnLineResponse:
     return CustomerReturnLineResponse(
         DocEntry=o.header_id,
         LineNum=o.LineNum,
@@ -259,7 +257,7 @@ def _customer_return_line_response(o: RDN1) -> CustomerReturnLineResponse:
     )
 
 
-def _sales_invoice_response(o: OINV) -> SalesInvoiceResponse:
+def sales_invoice_header_to_bolt_response(o: OINV) -> SalesInvoiceResponse:
     return SalesInvoiceResponse(
         DocEntry=o.DocEntry,
         DocNum=o.DocNum,
@@ -277,11 +275,13 @@ def _sales_invoice_response(o: OINV) -> SalesInvoiceResponse:
         Comments=o.Comments or "",
         SlpCode=o.SlpCode,
         OwnerCode=o.OwnerCode or "",
+        U_UserFld1=o.U_UserFld1 or "",
+        U_UserFld2=o.U_UserFld2 or "",
         Canceled=o.Canceled,
     )
 
 
-def _sales_invoice_line_response(o: INV1) -> SalesInvoiceLineResponse:
+def sales_invoice_line_to_bolt_response(o: INV1) -> SalesInvoiceLineResponse:
     return SalesInvoiceLineResponse(
         DocEntry=o.header_id,
         LineNum=o.LineNum,
@@ -299,25 +299,17 @@ def _sales_invoice_line_response(o: INV1) -> SalesInvoiceLineResponse:
     )
 
 
-class SalesQuotationCollection(APIView):
+class SalesQuotationListCreateView(APIView):
     """Sales quotation header (OQUT): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesQuotationPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> SalesQuotationPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OQUT.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -325,7 +317,7 @@ class SalesQuotationCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesQuotationPage(
-            items=[_sales_quotation_response(o) for o in rows],
+            items=[sales_quotation_header_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -351,12 +343,14 @@ class SalesQuotationCollection(APIView):
             Comments=(data.Comments or "").strip(),
             SlpCode=data.SlpCode,
             OwnerCode=(data.OwnerCode or "").strip()[:50],
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        return _sales_quotation_response(header)
+        return sales_quotation_header_to_bolt_response(header)
 
 
-class SalesQuotationDetail(APIView):
+class SalesQuotationDetailView(APIView):
     """Single quotation header: GET / PATCH / DELETE (soft ``Canceled='Y'``)."""
 
     auth = [JWTAuthentication()]
@@ -368,9 +362,9 @@ class SalesQuotationDetail(APIView):
         except OQUT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_quotation_response(o)
+        return sales_quotation_header_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, data: SalesQuotationPatchBody) -> SalesQuotationResponse:
         try:
@@ -378,7 +372,7 @@ class SalesQuotationDetail(APIView):
         except OQUT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -415,13 +409,17 @@ class SalesQuotationDetail(APIView):
             o.SlpCode = data.SlpCode
         if data.OwnerCode is not None:
             o.OwnerCode = data.OwnerCode.strip()[:50]
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return _sales_quotation_response(o)
+        return sales_quotation_header_to_bolt_response(o)
 
     async def delete(self, doc_entry: int) -> SalesQuotationResponse:
         try:
@@ -429,35 +427,25 @@ class SalesQuotationDetail(APIView):
         except OQUT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return _sales_quotation_response(o)
+        return sales_quotation_header_to_bolt_response(o)
 
 
-class SalesQuotationLineCollection(APIView):
+class SalesQuotationLineListCreateView(APIView):
     """Quotation lines (QUT1): list (optional ``doc_entry``) or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesQuotationLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> SalesQuotationLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = QUT1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -467,7 +455,7 @@ class SalesQuotationLineCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesQuotationLinePage(
-            items=[_sales_quotation_line_response(o) for o in rows],
+            items=[sales_quotation_line_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -493,10 +481,10 @@ class SalesQuotationLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        return _sales_quotation_line_response(line)
+        return sales_quotation_line_to_bolt_response(line)
 
 
-class SalesQuotationLineDetail(APIView):
+class SalesQuotationLineDetailView(APIView):
     """Single quotation line."""
 
     auth = [JWTAuthentication()]
@@ -508,11 +496,11 @@ class SalesQuotationLineDetail(APIView):
         except QUT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_quotation_line_response(o)
+        return sales_quotation_line_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: SalesQuotationLinePatchBody) -> SalesQuotationLineResponse:
         try:
@@ -520,7 +508,7 @@ class SalesQuotationLineDetail(APIView):
         except QUT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -546,7 +534,7 @@ class SalesQuotationLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        return _sales_quotation_line_response(o)
+        return sales_quotation_line_to_bolt_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> SalesQuotationLineResponse:
         try:
@@ -554,7 +542,7 @@ class SalesQuotationLineDetail(APIView):
         except QUT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -562,28 +550,20 @@ class SalesQuotationLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return _sales_quotation_line_response(o)
+        return sales_quotation_line_to_bolt_response(o)
 
 
-class SalesOrderCollection(APIView):
+class SalesOrderListCreateView(APIView):
     """Sales order header (ORDR): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesOrderPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> SalesOrderPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = ORDR.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -593,7 +573,7 @@ class SalesOrderCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesOrderPage(
-            items=[_sales_order_response(o) for o in rows],
+            items=[sales_order_header_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -619,14 +599,16 @@ class SalesOrderCollection(APIView):
             Comments=(data.Comments or "").strip(),
             SlpCode=data.SlpCode,
             OwnerCode=(data.OwnerCode or "").strip()[:50],
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(header.CardCode)
-        return _sales_order_response(header)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(header.CardCode)
+        return sales_order_header_to_bolt_response(header)
 
 
-class SalesOrderDetail(APIView):
+class SalesOrderDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -636,9 +618,9 @@ class SalesOrderDetail(APIView):
         except ORDR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_order_response(o)
+        return sales_order_header_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, data: SalesOrderPatchBody) -> SalesOrderResponse:
         try:
@@ -646,7 +628,7 @@ class SalesOrderDetail(APIView):
         except ORDR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         if data.DocNum is not None:
@@ -684,15 +666,19 @@ class SalesOrderDetail(APIView):
             o.SlpCode = data.SlpCode
         if data.OwnerCode is not None:
             o.OwnerCode = data.OwnerCode.strip()[:50]
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(old_cc, o.CardCode)
-        return _sales_order_response(o)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
+        return sales_order_header_to_bolt_response(o)
 
     async def delete(self, doc_entry: int) -> SalesOrderResponse:
         try:
@@ -700,38 +686,28 @@ class SalesOrderDetail(APIView):
         except ORDR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(old_cc)
-        return _sales_order_response(o)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
+        return sales_order_header_to_bolt_response(o)
 
 
-class SalesOrderLineCollection(APIView):
+class SalesOrderLineListCreateView(APIView):
     """Sales order lines (RDR1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesOrderLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> SalesOrderLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = RDR1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -739,7 +715,7 @@ class SalesOrderLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesOrderLinePage(
-            items=[_sales_order_line_response(o) for o in rows],
+            items=[sales_order_line_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -767,12 +743,12 @@ class SalesOrderLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(hdr.CardCode)
-        return _sales_order_line_response(line)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(hdr.CardCode)
+        return sales_order_line_to_bolt_response(line)
 
 
-class SalesOrderLineDetail(APIView):
+class SalesOrderLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -782,11 +758,11 @@ class SalesOrderLineDetail(APIView):
         except RDR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_order_line_response(o)
+        return sales_order_line_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: SalesOrderLinePatchBody) -> SalesOrderLineResponse:
         try:
@@ -794,7 +770,7 @@ class SalesOrderLineDetail(APIView):
         except RDR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -824,9 +800,9 @@ class SalesOrderLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(o.header.CardCode)
-        return _sales_order_line_response(o)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return sales_order_line_to_bolt_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> SalesOrderLineResponse:
         try:
@@ -834,7 +810,7 @@ class SalesOrderLineDetail(APIView):
         except RDR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -842,30 +818,22 @@ class SalesOrderLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _rebuild_so_po_totals()
-        await _bp_recalc_cards(o.header.CardCode)
-        return _sales_order_line_response(o)
+        await async_rebuild_inventory_open_totals_after_sales_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return sales_order_line_to_bolt_response(o)
 
 
-class DeliveryNoteCollection(APIView):
+class DeliveryNoteListCreateView(APIView):
     """Delivery header (ODLN): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> DeliveryNotePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> DeliveryNotePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = ODLN.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -873,7 +841,7 @@ class DeliveryNoteCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return DeliveryNotePage(
-            items=[_delivery_note_response(o) for o in rows],
+            items=[delivery_note_header_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -899,13 +867,15 @@ class DeliveryNoteCollection(APIView):
             Comments=(data.Comments or "").strip(),
             SlpCode=data.SlpCode,
             OwnerCode=(data.OwnerCode or "").strip()[:50],
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _bp_recalc_cards(header.CardCode)
-        return _delivery_note_response(header)
+        await async_recalculate_business_partner_rollups_for_card_codes(header.CardCode)
+        return delivery_note_header_to_bolt_response(header)
 
 
-class DeliveryNoteDetail(APIView):
+class DeliveryNoteDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -915,9 +885,9 @@ class DeliveryNoteDetail(APIView):
         except ODLN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _delivery_note_response(o)
+        return delivery_note_header_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, data: DeliveryNotePatchBody) -> DeliveryNoteResponse:
         try:
@@ -925,7 +895,7 @@ class DeliveryNoteDetail(APIView):
         except ODLN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         if data.DocNum is not None:
@@ -963,15 +933,19 @@ class DeliveryNoteDetail(APIView):
             o.SlpCode = data.SlpCode
         if data.OwnerCode is not None:
             o.OwnerCode = data.OwnerCode.strip()[:50]
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _sales_stock_sync_exc(resync_all_delivery_lines, doc_entry)
-        await _bp_recalc_cards(old_cc, o.CardCode)
-        return _delivery_note_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_delivery_lines, doc_entry)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
+        return delivery_note_header_to_bolt_response(o)
 
     async def delete(self, doc_entry: int) -> DeliveryNoteResponse:
         try:
@@ -979,38 +953,28 @@ class DeliveryNoteDetail(APIView):
         except ODLN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _sales_stock_sync_exc(resync_all_delivery_lines, doc_entry)
-        await _bp_recalc_cards(old_cc)
-        return _delivery_note_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_delivery_lines, doc_entry)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
+        return delivery_note_header_to_bolt_response(o)
 
 
-class DeliveryLineCollection(APIView):
+class DeliveryLineListCreateView(APIView):
     """Delivery lines (DLN1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> DeliveryLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> DeliveryLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = DLN1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -1018,7 +982,7 @@ class DeliveryLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return DeliveryLinePage(
-            items=[_delivery_line_response(o) for o in rows],
+            items=[delivery_note_line_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1047,14 +1011,14 @@ class DeliveryLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _sales_stock_sync_exc(sync_delivery_line_stock, line.header_id, int(line.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_delivery_line_stock, line.header_id, int(line.LineNum))
         hdr = await ODLN.objects.filter(pk=line.header_id).afirst()
         if hdr:
-            await _bp_recalc_cards(hdr.CardCode)
-        return _delivery_line_response(line)
+            await async_recalculate_business_partner_rollups_for_card_codes(hdr.CardCode)
+        return delivery_note_line_to_bolt_response(line)
 
 
-class DeliveryLineDetail(APIView):
+class DeliveryLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1064,11 +1028,11 @@ class DeliveryLineDetail(APIView):
         except DLN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _delivery_line_response(o)
+        return delivery_note_line_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: DeliveryLinePatchBody) -> DeliveryLineResponse:
         try:
@@ -1076,7 +1040,7 @@ class DeliveryLineDetail(APIView):
         except DLN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1108,9 +1072,9 @@ class DeliveryLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _sales_stock_sync_exc(sync_delivery_line_stock, doc_entry, int(line_num))
-        await _bp_recalc_cards(o.header.CardCode)
-        return _delivery_line_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_delivery_line_stock, doc_entry, int(line_num))
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return delivery_note_line_to_bolt_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> DeliveryLineResponse:
         try:
@@ -1118,7 +1082,7 @@ class DeliveryLineDetail(APIView):
         except DLN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1126,30 +1090,22 @@ class DeliveryLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _sales_stock_sync_exc(sync_delivery_line_stock, doc_entry, int(line_num))
-        await _bp_recalc_cards(o.header.CardCode)
-        return _delivery_line_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_delivery_line_stock, doc_entry, int(line_num))
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return delivery_note_line_to_bolt_response(o)
 
 
-class CustomerReturnCollection(APIView):
+class CustomerReturnListCreateView(APIView):
     """Return header (ORDN): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> CustomerReturnPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> CustomerReturnPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = ORDN.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -1157,7 +1113,7 @@ class CustomerReturnCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return CustomerReturnPage(
-            items=[_customer_return_response(o) for o in rows],
+            items=[customer_return_header_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1183,13 +1139,15 @@ class CustomerReturnCollection(APIView):
             Comments=(data.Comments or "").strip(),
             SlpCode=data.SlpCode,
             OwnerCode=(data.OwnerCode or "").strip()[:50],
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _bp_recalc_cards(header.CardCode)
-        return _customer_return_response(header)
+        await async_recalculate_business_partner_rollups_for_card_codes(header.CardCode)
+        return customer_return_header_to_bolt_response(header)
 
 
-class CustomerReturnDetail(APIView):
+class CustomerReturnDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1199,9 +1157,9 @@ class CustomerReturnDetail(APIView):
         except ORDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _customer_return_response(o)
+        return customer_return_header_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, data: CustomerReturnPatchBody) -> CustomerReturnResponse:
         try:
@@ -1209,7 +1167,7 @@ class CustomerReturnDetail(APIView):
         except ORDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         if data.DocNum is not None:
@@ -1247,15 +1205,19 @@ class CustomerReturnDetail(APIView):
             o.SlpCode = data.SlpCode
         if data.OwnerCode is not None:
             o.OwnerCode = data.OwnerCode.strip()[:50]
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _sales_stock_sync_exc(resync_all_return_lines, doc_entry)
-        await _bp_recalc_cards(old_cc, o.CardCode)
-        return _customer_return_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_return_lines, doc_entry)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
+        return customer_return_header_to_bolt_response(o)
 
     async def delete(self, doc_entry: int) -> CustomerReturnResponse:
         try:
@@ -1263,38 +1225,28 @@ class CustomerReturnDetail(APIView):
         except ORDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _sales_stock_sync_exc(resync_all_return_lines, doc_entry)
-        await _bp_recalc_cards(old_cc)
-        return _customer_return_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_return_lines, doc_entry)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
+        return customer_return_header_to_bolt_response(o)
 
 
-class CustomerReturnLineCollection(APIView):
+class CustomerReturnLineListCreateView(APIView):
     """Return lines (RDN1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> CustomerReturnLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> CustomerReturnLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = RDN1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -1302,7 +1254,7 @@ class CustomerReturnLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix) | Q(WhsCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return CustomerReturnLinePage(
-            items=[_customer_return_line_response(o) for o in rows],
+            items=[customer_return_line_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1331,14 +1283,14 @@ class CustomerReturnLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _sales_stock_sync_exc(sync_return_line_stock, line.header_id, int(line.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_return_line_stock, line.header_id, int(line.LineNum))
         hdr = await ORDN.objects.filter(pk=line.header_id).afirst()
         if hdr:
-            await _bp_recalc_cards(hdr.CardCode)
-        return _customer_return_line_response(line)
+            await async_recalculate_business_partner_rollups_for_card_codes(hdr.CardCode)
+        return customer_return_line_to_bolt_response(line)
 
 
-class CustomerReturnLineDetail(APIView):
+class CustomerReturnLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1348,11 +1300,11 @@ class CustomerReturnLineDetail(APIView):
         except RDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _customer_return_line_response(o)
+        return customer_return_line_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: CustomerReturnLinePatchBody) -> CustomerReturnLineResponse:
         try:
@@ -1360,7 +1312,7 @@ class CustomerReturnLineDetail(APIView):
         except RDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1392,9 +1344,9 @@ class CustomerReturnLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _sales_stock_sync_exc(sync_return_line_stock, doc_entry, int(line_num))
-        await _bp_recalc_cards(o.header.CardCode)
-        return _customer_return_line_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_return_line_stock, doc_entry, int(line_num))
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return customer_return_line_to_bolt_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> CustomerReturnLineResponse:
         try:
@@ -1402,7 +1354,7 @@ class CustomerReturnLineDetail(APIView):
         except RDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1410,30 +1362,22 @@ class CustomerReturnLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _sales_stock_sync_exc(sync_return_line_stock, doc_entry, int(line_num))
-        await _bp_recalc_cards(o.header.CardCode)
-        return _customer_return_line_response(o)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_return_line_stock, doc_entry, int(line_num))
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        return customer_return_line_to_bolt_response(o)
 
 
-class SalesInvoiceCollection(APIView):
+class SalesInvoiceListCreateView(APIView):
     """A/R invoice header (OINV): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesInvoicePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> SalesInvoicePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OINV.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -1441,7 +1385,7 @@ class SalesInvoiceCollection(APIView):
             )
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesInvoicePage(
-            items=[_sales_invoice_response(o) for o in rows],
+            items=[sales_invoice_header_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1463,14 +1407,16 @@ class SalesInvoiceCollection(APIView):
             Comments=(data.Comments or "").strip(),
             SlpCode=data.SlpCode,
             OwnerCode=(data.OwnerCode or "").strip()[:50],
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _bp_recalc_cards(header.CardCode)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(header.DocEntry))
-        return _sales_invoice_response(header)
+        await async_recalculate_business_partner_rollups_for_card_codes(header.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(header.DocEntry))
+        return sales_invoice_header_to_bolt_response(header)
 
 
-class SalesInvoiceDetail(APIView):
+class SalesInvoiceDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1480,9 +1426,9 @@ class SalesInvoiceDetail(APIView):
         except OINV.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_invoice_response(o)
+        return sales_invoice_header_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, data: SalesInvoicePatchBody) -> SalesInvoiceResponse:
         try:
@@ -1490,7 +1436,7 @@ class SalesInvoiceDetail(APIView):
         except OINV.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         if data.DocNum is not None:
@@ -1523,15 +1469,19 @@ class SalesInvoiceDetail(APIView):
             o.SlpCode = data.SlpCode
         if data.OwnerCode is not None:
             o.OwnerCode = data.OwnerCode.strip()[:50]
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _bp_recalc_cards(old_cc, o.CardCode)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
-        return _sales_invoice_response(o)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(doc_entry))
+        return sales_invoice_header_to_bolt_response(o)
 
     async def delete(self, doc_entry: int) -> SalesInvoiceResponse:
         try:
@@ -1539,38 +1489,28 @@ class SalesInvoiceDetail(APIView):
         except OINV.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _bp_recalc_cards(old_cc)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
-        return _sales_invoice_response(o)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(doc_entry))
+        return sales_invoice_header_to_bolt_response(o)
 
 
-class SalesInvoiceLineCollection(APIView):
+class SalesInvoiceLineListCreateView(APIView):
     """A/R invoice lines (INV1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> SalesInvoiceLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> SalesInvoiceLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = INV1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -1578,7 +1518,7 @@ class SalesInvoiceLineCollection(APIView):
             queryset = queryset.filter(Q(ItemCode__istartswith=search_prefix))
         rows = await sync_to_async(list)(queryset[offset : offset + limit])
         return SalesInvoiceLinePage(
-            items=[_sales_invoice_line_response(o) for o in rows],
+            items=[sales_invoice_line_to_bolt_response(o) for o in rows],
             limit=limit,
             offset=offset,
         )
@@ -1607,12 +1547,12 @@ class SalesInvoiceLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _bp_recalc_cards(hdr.CardCode)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(hdr.DocEntry))
-        return _sales_invoice_line_response(line)
+        await async_recalculate_business_partner_rollups_for_card_codes(hdr.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(hdr.DocEntry))
+        return sales_invoice_line_to_bolt_response(line)
 
 
-class SalesInvoiceLineDetail(APIView):
+class SalesInvoiceLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1622,11 +1562,11 @@ class SalesInvoiceLineDetail(APIView):
         except INV1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _sales_invoice_line_response(o)
+        return sales_invoice_line_to_bolt_response(o)
 
     async def patch(self, doc_entry: int, line_num: int, data: SalesInvoiceLinePatchBody) -> SalesInvoiceLineResponse:
         try:
@@ -1634,7 +1574,7 @@ class SalesInvoiceLineDetail(APIView):
         except INV1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1666,9 +1606,9 @@ class SalesInvoiceLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _bp_recalc_cards(o.header.CardCode)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
-        return _sales_invoice_line_response(o)
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(doc_entry))
+        return sales_invoice_line_to_bolt_response(o)
 
     async def delete(self, doc_entry: int, line_num: int) -> SalesInvoiceLineResponse:
         try:
@@ -1676,7 +1616,7 @@ class SalesInvoiceLineDetail(APIView):
         except INV1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1684,107 +1624,107 @@ class SalesInvoiceLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _bp_recalc_cards(o.header.CardCode)
-        await _sales_stock_sync_exc(sync_ar_invoice_journal, int(doc_entry))
-        return _sales_invoice_line_response(o)
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ar_invoice_journal, int(doc_entry))
+        return sales_invoice_line_to_bolt_response(o)
 
 
 def attach_sales_routes(api: BoltAPI) -> None:
     """Register Sales A/R Bolt routes."""
     tag = ["sales"]
     # Human-readable paths (legacy SAP-style paths kept for compatibility).
-    api.view(SALES_API_PREFIX + "/quotations", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationCollection)
+    api.view(SALES_API_PREFIX + "/quotations", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationListCreateView)
     api.view(SALES_API_PREFIX + "/quotations/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesQuotationDetail
+        SalesQuotationDetailView
     )
-    api.view(SALES_API_PREFIX + "/quotation-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationLineCollection)
+    api.view(SALES_API_PREFIX + "/quotation-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationLineListCreateView)
     api.view(
         SALES_API_PREFIX + "/quotation-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(SalesQuotationLineDetail)
-    api.view(SALES_API_PREFIX + "/sales-orders", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderCollection)
+    )(SalesQuotationLineDetailView)
+    api.view(SALES_API_PREFIX + "/sales-orders", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderListCreateView)
     api.view(SALES_API_PREFIX + "/sales-orders/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesOrderDetail
+        SalesOrderDetailView
     )
-    api.view(SALES_API_PREFIX + "/sales-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderLineCollection)
+    api.view(SALES_API_PREFIX + "/sales-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderLineListCreateView)
     api.view(
         SALES_API_PREFIX + "/sales-order-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(SalesOrderLineDetail)
-    api.view(SALES_API_PREFIX + "/deliveries", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryNoteCollection)
+    )(SalesOrderLineDetailView)
+    api.view(SALES_API_PREFIX + "/deliveries", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryNoteListCreateView)
     api.view(SALES_API_PREFIX + "/deliveries/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        DeliveryNoteDetail
+        DeliveryNoteDetailView
     )
-    api.view(SALES_API_PREFIX + "/delivery-lines", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryLineCollection)
+    api.view(SALES_API_PREFIX + "/delivery-lines", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryLineListCreateView)
     api.view(
         SALES_API_PREFIX + "/delivery-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(DeliveryLineDetail)
-    api.view(SALES_API_PREFIX + "/customer-returns", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnCollection)
+    )(DeliveryLineDetailView)
+    api.view(SALES_API_PREFIX + "/customer-returns", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnListCreateView)
     api.view(SALES_API_PREFIX + "/customer-returns/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        CustomerReturnDetail
+        CustomerReturnDetailView
     )
-    api.view(SALES_API_PREFIX + "/customer-return-lines", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnLineCollection)
+    api.view(SALES_API_PREFIX + "/customer-return-lines", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnLineListCreateView)
     api.view(
         SALES_API_PREFIX + "/customer-return-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(CustomerReturnLineDetail)
-    api.view(SALES_API_PREFIX + "/invoices", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceCollection)
+    )(CustomerReturnLineDetailView)
+    api.view(SALES_API_PREFIX + "/invoices", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceListCreateView)
     api.view(SALES_API_PREFIX + "/invoices/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesInvoiceDetail
+        SalesInvoiceDetailView
     )
-    api.view(SALES_API_PREFIX + "/invoice-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceLineCollection)
+    api.view(SALES_API_PREFIX + "/invoice-lines", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceLineListCreateView)
     api.view(
         SALES_API_PREFIX + "/invoice-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(SalesInvoiceLineDetail)
-    api.view(SALES_API_PREFIX + "/oqut", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationCollection)
+    )(SalesInvoiceLineDetailView)
+    api.view(SALES_API_PREFIX + "/oqut", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationListCreateView)
     api.view(SALES_API_PREFIX + "/oqut/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesQuotationDetail
+        SalesQuotationDetailView
     )
-    api.view(SALES_API_PREFIX + "/qut1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationLineCollection)
+    api.view(SALES_API_PREFIX + "/qut1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesQuotationLineListCreateView)
     api.view(SALES_API_PREFIX + "/qut1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesQuotationLineDetail
+        SalesQuotationLineDetailView
     )
-    api.view(SALES_API_PREFIX + "/ordr", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderCollection)
+    api.view(SALES_API_PREFIX + "/ordr", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderListCreateView)
     api.view(SALES_API_PREFIX + "/ordr/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesOrderDetail
+        SalesOrderDetailView
     )
-    api.view(SALES_API_PREFIX + "/rdr1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderLineCollection)
+    api.view(SALES_API_PREFIX + "/rdr1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesOrderLineListCreateView)
     api.view(SALES_API_PREFIX + "/rdr1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesOrderLineDetail
+        SalesOrderLineDetailView
     )
-    api.view(SALES_API_PREFIX + "/odln", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryNoteCollection)
+    api.view(SALES_API_PREFIX + "/odln", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryNoteListCreateView)
     api.view(SALES_API_PREFIX + "/odln/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        DeliveryNoteDetail
+        DeliveryNoteDetailView
     )
-    api.view(SALES_API_PREFIX + "/dln1", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryLineCollection)
+    api.view(SALES_API_PREFIX + "/dln1", methods=["GET", "POST"], status_code=200, tags=tag)(DeliveryLineListCreateView)
     api.view(SALES_API_PREFIX + "/dln1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        DeliveryLineDetail
+        DeliveryLineDetailView
     )
-    api.view(SALES_API_PREFIX + "/ordn", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnCollection)
+    api.view(SALES_API_PREFIX + "/ordn", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnListCreateView)
     api.view(SALES_API_PREFIX + "/ordn/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        CustomerReturnDetail
+        CustomerReturnDetailView
     )
-    api.view(SALES_API_PREFIX + "/rdn1", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnLineCollection)
+    api.view(SALES_API_PREFIX + "/rdn1", methods=["GET", "POST"], status_code=200, tags=tag)(CustomerReturnLineListCreateView)
     api.view(SALES_API_PREFIX + "/rdn1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        CustomerReturnLineDetail
+        CustomerReturnLineDetailView
     )
-    api.view(SALES_API_PREFIX + "/oinv", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceCollection)
+    api.view(SALES_API_PREFIX + "/oinv", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceListCreateView)
     api.view(SALES_API_PREFIX + "/oinv/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesInvoiceDetail
+        SalesInvoiceDetailView
     )
-    api.view(SALES_API_PREFIX + "/inv1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceLineCollection)
+    api.view(SALES_API_PREFIX + "/inv1", methods=["GET", "POST"], status_code=200, tags=tag)(SalesInvoiceLineListCreateView)
     api.view(SALES_API_PREFIX + "/inv1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        SalesInvoiceLineDetail
+        SalesInvoiceLineDetailView
     )

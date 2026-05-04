@@ -9,6 +9,7 @@ import { PurchaseWorkspacePane } from "../pages/purchase/PurchaseModulePage";
 import { ProductionWorkspacePane } from "../pages/production/ProductionModulePage";
 import { SalesWorkspacePane } from "../pages/sales/SalesModulePage";
 import { FinanceWorkspacePane } from "../pages/finance/FinanceModulePage";
+import { WarehouseWorkspacePane } from "../pages/warehouse/WarehouseModulePage";
 
 type SapDashboardShellProps = {
   userLabel: string;
@@ -29,7 +30,21 @@ function HomeWorkspacePane() {
 /** Main window after login — chrome from ``frontend/ui/sap-dash.html`` (multi-tab workspace). */
 export function SapDashboardShell({ userLabel }: SapDashboardShellProps) {
   const nav = useNavigate();
-  const { tabs, activeTabId, switchTab, closeTab, runFind, runNew, runFirst, runPrev, runNext, runLast, runPrint } = useWorkspace();
+  const {
+    tabs,
+    activeTabId,
+    switchTab,
+    closeTab,
+    runFind,
+    runNew,
+    runFirst,
+    runPrev,
+    runNext,
+    runLast,
+    runPrint,
+    udfSidebarVisible,
+    toggleUdfSidebar,
+  } = useWorkspace();
   const [clock, setClock] = useState(() => new Date().toLocaleString());
 
   useEffect(() => {
@@ -99,6 +114,16 @@ export function SapDashboardShell({ userLabel }: SapDashboardShellProps) {
           <div className="dropdown">
             <div className="dropdown-item" onClick={() => runFind()} onKeyDown={(e) => e.key === "Enter" && runFind()} role="menuitem" tabIndex={0}>
               Refresh
+            </div>
+            <div
+              className="dropdown-item"
+              onClick={() => toggleUdfSidebar()}
+              onKeyDown={(e) => e.key === "Enter" && toggleUdfSidebar()}
+              role="menuitem"
+              tabIndex={0}
+            >
+              {udfSidebarVisible ? "✓ " : ""}
+              User-Defined Fields
             </div>
           </div>
         </div>
@@ -198,6 +223,9 @@ export function SapDashboardShell({ userLabel }: SapDashboardShellProps) {
               {tab.kind === "purchase" && tab.purchaseModuleId ? <PurchaseWorkspacePane moduleId={tab.purchaseModuleId} tabId={tab.id} /> : null}
               {tab.kind === "production" && tab.productionModuleId ? <ProductionWorkspacePane moduleId={tab.productionModuleId} tabId={tab.id} /> : null}
               {tab.kind === "finance" && tab.financeModuleId ? <FinanceWorkspacePane moduleId={tab.financeModuleId} tabId={tab.id} /> : null}
+              {tab.kind === "warehouse" && tab.warehouseModuleId ? (
+                <WarehouseWorkspacePane moduleId={tab.warehouseModuleId} tabId={tab.id} />
+              ) : null}
             </div>
           ))}
         </div>

@@ -20,6 +20,8 @@ class BomHeaderResponse(Serializer):
     Code: str
     TreeType: str
     Quantity: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -37,6 +39,8 @@ class BomHeaderCreateBody(Serializer):
     Code: str
     TreeType: str = field(default="P")
     Quantity: str = field(default="1")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -44,6 +48,8 @@ class BomHeaderCreateBody(Serializer):
 class BomHeaderPatchBody(Serializer):
     TreeType: str | None = field(default=None)
     Quantity: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -96,6 +102,8 @@ class ProductionOrderResponse(Serializer):
     CmpltQty: str
     PostDate: date
     WhsCode: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -117,6 +125,8 @@ class ProductionOrderCreateBody(Serializer):
     CmpltQty: str = field(default="0")
     PostDate: date
     WhsCode: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -129,6 +139,8 @@ class ProductionOrderPatchBody(Serializer):
     CmpltQty: str | None = field(default=None)
     PostDate: date | None = field(default=None)
     WhsCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 

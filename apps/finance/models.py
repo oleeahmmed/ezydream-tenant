@@ -17,26 +17,12 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def _yn(value: str, field: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({field: "Use Y or N."})
-
-
-def _group_mask(value: int) -> None:
-    if value not in (1, 2, 3, 4, 5):
-        raise ValidationError({"GroupMask": "Use 1=Assets, 2=Liabilities, 3=Equity, 4=Revenue, 5=Expenses."})
-
-
-def _dim_code(value: int) -> None:
-    if value not in (1, 2, 3, 4, 5):
-        raise ValidationError({"DimCode": "Dimension must be 1–5."})
-
-
-def _doc_status_fi(value: str) -> None:
-    if value not in ("O", "C"):
-        raise ValidationError({"DocStatus": "Use O (open) or C (closed)."})
+from apps.core.beginner_style.model_validation import (
+    validate_dimension_1_to_5,
+    validate_finance_document_status_open_or_closed,
+    validate_gl_group_mask_1_to_5,
+    validate_yes_no_field,
+)
 
 
 class OACT(models.Model):
@@ -60,6 +46,8 @@ class OACT(models.Model):
     Levels = models.PositiveSmallIntegerField(ui.GL_LEVELS, default=1)
     ExportCode = models.CharField(ui.EXPORT_CODE, max_length=20, blank=True, default="", db_index=True)
     AcctFixed = models.CharField(ui.FIXED_ASSET_ACCOUNT, max_length=1, default="N", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
 
     class Meta:
         db_table = "OACT"
@@ -67,12 +55,12 @@ class OACT(models.Model):
         verbose_name_plural = _("Chart of accounts")
 
     def clean(self) -> None:
-        _group_mask(int(self.GroupMask))
-        _yn(self.Postable, "Postable")
-        _yn(self.LocCash, "LocCash")
-        _yn(self.ValidFor, "ValidFor")
-        _yn(self.Frozen, "Frozen")
-        _yn(self.AcctFixed, "AcctFixed")
+        validate_gl_group_mask_1_to_5(int(self.GroupMask))
+        validate_yes_no_field(self.Postable, "Postable")
+        validate_yes_no_field(self.LocCash, "LocCash")
+        validate_yes_no_field(self.ValidFor, "ValidFor")
+        validate_yes_no_field(self.Frozen, "Frozen")
+        validate_yes_no_field(self.AcctFixed, "AcctFixed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -87,6 +75,8 @@ class OPRC(models.Model):
     DimCode = models.PositiveSmallIntegerField(ui.DIMENSION_NO)
     Active = models.CharField(ui.ACTIVE, max_length=1, default="Y", db_index=True)
     PrcFather = models.CharField(ui.CENTER_PARENT, max_length=20, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
 
     class Meta:
         db_table = "OPRC"
@@ -94,8 +84,8 @@ class OPRC(models.Model):
         verbose_name_plural = _("Profit / cost centers")
 
     def clean(self) -> None:
-        _dim_code(int(self.DimCode))
-        _yn(self.Active, "Active")
+        validate_dimension_1_to_5(int(self.DimCode))
+        validate_yes_no_field(self.Active, "Active")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -115,6 +105,8 @@ class OJDT(models.Model):
     DueDate = models.DateField(ui.JOURNAL_DUE_DATE, null=True, blank=True, db_index=True)
     TransCode = models.IntegerField(ui.TRANS_CODE, null=True, blank=True, db_index=True)
     Project = models.CharField(ui.PROJECT_CODE, max_length=20, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
 
     class Meta:
         db_table = "OJDT"
@@ -199,6 +191,8 @@ class ORCT(models.Model):
     )
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
 
     class Meta:
         db_table = "ORCT"
@@ -206,7 +200,7 @@ class ORCT(models.Model):
         verbose_name_plural = _("Incoming payments")
 
     def clean(self) -> None:
-        _doc_status_fi(self.DocStatus)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
 
 
 class RCT1(models.Model):
@@ -270,6 +264,8 @@ class OVPM(models.Model):
     TrsfrAcct = models.CharField(ui.TRANSFER_ACCOUNT, max_length=20, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
 
     class Meta:
         db_table = "OVPM"
@@ -277,7 +273,7 @@ class OVPM(models.Model):
         verbose_name_plural = _("Outgoing payments")
 
     def clean(self) -> None:
-        _doc_status_fi(self.DocStatus)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
 
 
 class VPM1(models.Model):
@@ -330,8 +326,8 @@ class OSTC(models.Model):
         verbose_name_plural = _("Tax codes")
 
     def clean(self) -> None:
-        _yn(self.ValidFor, "ValidFor")
-        _yn(self.Frozen, "Frozen")
+        validate_yes_no_field(self.ValidFor, "ValidFor")
+        validate_yes_no_field(self.Frozen, "Frozen")
 
 
 class OFPR(models.Model):

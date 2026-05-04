@@ -17,7 +17,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from apps.core import b1_fi_journal_transtype as jt
+from apps.core import b1_field_choices as jt
 from apps.finance.models import JDT1, OACT, OJDT
 from apps.finance.services import posting_defaults as pd
 from apps.finance.services.fi_period import assert_open_fi_period

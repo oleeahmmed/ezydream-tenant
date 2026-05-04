@@ -13,11 +13,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def _yn(value: str, field: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({field: "Use Y or N."})
+from apps.core.beginner_style.model_validation import validate_yes_no_field
 
 
 class OCRG(models.Model):
@@ -39,7 +35,7 @@ class OCRG(models.Model):
     def clean(self) -> None:
         if self.GroupType not in ("C", "S", "B"):
             raise ValidationError({"GroupType": "Use C (customer), S (supplier), or B (both)."})
-        _yn(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -133,9 +129,9 @@ class OCRD(models.Model):
             raise ValidationError({"CardCode": "CardCode is required."})
         if self.CardType not in ("C", "S", "L"):
             raise ValidationError({"CardType": "Use C (customer), S (supplier), or L (lead)."})
-        _yn(self.ValidFor, "ValidFor")
-        _yn(self.Frozen, "Frozen")
-        _yn(self.Canceled, "Canceled")
+        validate_yes_no_field(self.ValidFor, "ValidFor")
+        validate_yes_no_field(self.Frozen, "Frozen")
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -176,7 +172,7 @@ class CRD1(models.Model):
     def clean(self) -> None:
         if self.AdresType not in ("B", "S"):
             raise ValidationError({"AdresType": "Use B (bill-to) or S (ship-to)."})
-        _yn(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()

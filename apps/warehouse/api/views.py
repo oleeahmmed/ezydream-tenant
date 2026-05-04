@@ -13,7 +13,13 @@ from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
+
+from apps.core.beginner_style import (
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+)
 
 from apps.warehouse.models import OWHS
 
@@ -28,26 +34,19 @@ from .serializers import (
 WAREHOUSE_API_PREFIX = "/api/warehouse"
 
 
-class WarehouseCollection(APIView):
+class WarehouseListCreateView(APIView):
     """List warehouses (GET) or create one (POST)."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> WarehousePage:
+    async def get(self, request: Request) -> WarehousePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
         active_only = (qd.get("active_only") or "1").strip().lower() in ("1", "true", "yes", "")
         queryset = OWHS.objects.all().order_by("WhsCode")
-        if active_only and (qd.get("include_deleted", "").strip().lower() not in ("1", "true", "yes")):
+        if active_only and not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Inactive="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -96,7 +95,7 @@ class WarehouseCollection(APIView):
         )
 
 
-class WarehouseDetail(APIView):
+class WarehouseDetailView(APIView):
     """Single warehouse: GET / PATCH / DELETE (DELETE = inactive ``Inactive='Y'``)."""
 
     auth = [JWTAuthentication()]
@@ -109,7 +108,7 @@ class WarehouseDetail(APIView):
         except OWHS.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if row.Inactive == "Y" and (qd.get("include_deleted", "").strip().lower() not in ("1", "true", "yes")):
+        if row.Inactive == "Y" and not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return WarehouseResponse(
             WhsCode=row.WhsCode,
@@ -160,17 +159,17 @@ class WarehouseDetail(APIView):
 def attach_warehouse_routes(api: BoltAPI) -> None:
     """Register Bolt routes for this app."""
     tag = ["warehouse"]
-    api.view(WAREHOUSE_API_PREFIX + "/warehouses", methods=["GET", "POST"], status_code=200, tags=tag)(WarehouseCollection)
+    api.view(WAREHOUSE_API_PREFIX + "/warehouses", methods=["GET", "POST"], status_code=200, tags=tag)(WarehouseListCreateView)
     api.view(
         WAREHOUSE_API_PREFIX + "/warehouses/{whs_code}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(WarehouseDetail)
-    api.view(WAREHOUSE_API_PREFIX + "/owhs", methods=["GET", "POST"], status_code=200, tags=tag)(WarehouseCollection)
+    )(WarehouseDetailView)
+    api.view(WAREHOUSE_API_PREFIX + "/owhs", methods=["GET", "POST"], status_code=200, tags=tag)(WarehouseListCreateView)
     api.view(
         WAREHOUSE_API_PREFIX + "/owhs/{whs_code}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(WarehouseDetail)
+    )(WarehouseDetailView)

@@ -9,22 +9,15 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def _doc_status(value: str) -> None:
-    if value not in ("O", "C"):
-        raise ValidationError({"DocStatus": "Use O (open) or C (closed)."})
-
-
-def _canceled_yn(value: str) -> None:
-    if value not in ("Y", "N"):
-        raise ValidationError({"Canceled": "Use Y or N (SAP-style soft delete)."})
+from apps.core.beginner_style.model_validation import (
+    validate_finance_document_status_open_or_closed,
+    validate_yes_no_field,
+)
 
 
 class OQUT(models.Model):
@@ -65,6 +58,8 @@ class OQUT(models.Model):
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     SlpCode = models.IntegerField(ui.SALES_EMPLOYEE, null=True, blank=True, db_index=True)
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -73,8 +68,8 @@ class OQUT(models.Model):
         verbose_name_plural = _("Sales quotations")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -124,7 +119,7 @@ class QUT1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -169,6 +164,8 @@ class ORDR(models.Model):
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     SlpCode = models.IntegerField(ui.SALES_EMPLOYEE, null=True, blank=True, db_index=True)
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -177,8 +174,8 @@ class ORDR(models.Model):
         verbose_name_plural = _("Sales orders")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -230,7 +227,7 @@ class RDR1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -275,6 +272,8 @@ class ODLN(models.Model):
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     SlpCode = models.IntegerField(ui.SALES_EMPLOYEE, null=True, blank=True, db_index=True)
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -283,8 +282,8 @@ class ODLN(models.Model):
         verbose_name_plural = _("Deliveries")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -337,7 +336,7 @@ class DLN1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -382,6 +381,8 @@ class ORDN(models.Model):
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     SlpCode = models.IntegerField(ui.SALES_EMPLOYEE, null=True, blank=True, db_index=True)
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -390,8 +391,8 @@ class ORDN(models.Model):
         verbose_name_plural = _("Returns")
 
     def clean(self) -> None:
-        _doc_status(self.DocStatus)
-        _canceled_yn(self.Canceled)
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -444,7 +445,7 @@ class RDN1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -488,6 +489,8 @@ class OINV(models.Model):
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     SlpCode = models.IntegerField(ui.SALES_EMPLOYEE, null=True, blank=True, db_index=True)
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -496,7 +499,7 @@ class OINV(models.Model):
         verbose_name_plural = _("A/R invoices")
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -548,7 +551,7 @@ class INV1(models.Model):
         ]
 
     def clean(self) -> None:
-        _canceled_yn(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()

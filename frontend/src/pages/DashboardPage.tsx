@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getAccessToken, clearTokens } from "../lib/auth";
 import { getMe } from "../api/auth";
 import { SapDashboardShell } from "../components/SapDashboardShell";
+import { FieldChoicesProvider } from "../lib/useFieldChoiceLookup";
 import { WorkspaceProvider } from "../workspace/WorkspaceContext";
 
 export default function DashboardPage() {
@@ -29,8 +30,10 @@ export default function DashboardPage() {
 
   if (!token) return null;
   return (
-    <WorkspaceProvider>
-      <SapDashboardShell userLabel={user} />
-    </WorkspaceProvider>
+    <FieldChoicesProvider>
+      <WorkspaceProvider>
+        <SapDashboardShell userLabel={user} />
+      </WorkspaceProvider>
+    </FieldChoicesProvider>
   );
 }

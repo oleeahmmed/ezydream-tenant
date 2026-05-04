@@ -12,6 +12,11 @@ export type SapAutocompleteInputProps = Omit<InputHTMLAttributes<HTMLInputElemen
   listButtonTitle?: string;
   /** If true, no embedded button (same as read-only look). */
   hideTrigger?: boolean;
+  /**
+   * If true, the text box stays read-only but the choose-from-list button remains visible.
+   * Use when the field shows a resolved label/name while the API stores a code (Item group, etc.).
+   */
+  keepTriggerWhenReadOnly?: boolean;
 };
 
 /**
@@ -25,9 +30,10 @@ export function SapAutocompleteInput({
   readOnly,
   disabled,
   hideTrigger,
+  keepTriggerWhenReadOnly,
   ...inputProps
 }: SapAutocompleteInputProps) {
-  const noTrigger = Boolean(hideTrigger || readOnly || disabled);
+  const noTrigger = Boolean(hideTrigger || disabled || (readOnly && !keepTriggerWhenReadOnly));
   return (
     <div
       className={`sap-input-autocomplete${noTrigger ? " sap-input-autocomplete--readonly" : ""}${wrapperClassName ? ` ${wrapperClassName}` : ""}`.trim()}

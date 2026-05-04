@@ -23,6 +23,8 @@ class PurchaseRequestResponse(Serializer):
     Requester: str
     DocDate: date
     DocDueDate: date
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -42,6 +44,8 @@ class PurchaseRequestCreateBody(Serializer):
     Requester: str
     DocDate: date
     DocDueDate: date
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -52,6 +56,8 @@ class PurchaseRequestPatchBody(Serializer):
     Requester: str | None = field(default=None)
     DocDate: date | None = field(default=None)
     DocDueDate: date | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -109,6 +115,8 @@ class PurchaseOrderResponse(Serializer):
     DocStatus: str
     DocDate: date
     DocTotal: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -129,6 +137,8 @@ class PurchaseOrderCreateBody(Serializer):
     DocStatus: str = field(default="O")
     DocDate: date
     DocTotal: str = field(default="0")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -140,6 +150,8 @@ class PurchaseOrderPatchBody(Serializer):
     DocStatus: str | None = field(default=None)
     DocDate: date | None = field(default=None)
     DocTotal: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -202,6 +214,8 @@ class GoodsReceiptResponse(Serializer):
     CardName: str = field(default="")
     DocDate: date
     DocStatus: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -221,6 +235,8 @@ class GoodsReceiptCreateBody(Serializer):
     CardName: str = field(default="")
     DocDate: date
     DocStatus: str = field(default="O")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -231,6 +247,8 @@ class GoodsReceiptPatchBody(Serializer):
     CardName: str | None = field(default=None)
     DocDate: date | None = field(default=None)
     DocStatus: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -292,6 +310,8 @@ class VendorReturnResponse(Serializer):
     CardCode: str
     CardName: str = field(default="")
     DocDate: date
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -310,6 +330,8 @@ class VendorReturnCreateBody(Serializer):
     CardCode: str
     CardName: str = field(default="")
     DocDate: date
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -320,6 +342,8 @@ class VendorReturnPatchBody(Serializer):
     CardName: str | None = field(default=None)
     DocDate: date | None = field(default=None)
     DocStatus: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -383,6 +407,8 @@ class ApInvoiceResponse(Serializer):
     DocDate: date
     DocTotal: str
     VatSum: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -403,6 +429,8 @@ class ApInvoiceCreateBody(Serializer):
     DocDate: date
     DocTotal: str = field(default="0")
     VatSum: str = field(default="0")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -414,6 +442,8 @@ class ApInvoicePatchBody(Serializer):
     DocDate: date | None = field(default=None)
     DocTotal: str | None = field(default=None)
     VatSum: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 

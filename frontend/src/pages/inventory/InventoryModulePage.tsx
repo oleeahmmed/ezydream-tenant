@@ -1,15 +1,12 @@
 import type { ComponentType } from "react";
 import { useMemo } from "react";
 import { getInventoryModule } from "./registry";
-import { GreceiptWorkspacePane } from "./greceipt/GreceiptWorkspacePane";
-import { GissueWorkspacePane } from "./gissue/GissueWorkspacePane";
+import { getInventorySapModule, INVENTORY_SAP_MODULE_IDS } from "./inventorySapRegistry";
+import { SapDocumentCrud } from "../shared/SapDocumentCrud";
 import { InvpostWorkspacePane } from "./invpost/InvpostWorkspacePane";
 import { ItemGroupsWorkspacePane } from "./item-groups/ItemGroupsWorkspacePane";
 import { ItemWhsWorkspacePane } from "./item-whs/ItemWhsWorkspacePane";
 import { ItemsWorkspacePane } from "./items/ItemsWorkspacePane";
-import { StrReqWorkspacePane } from "./str-req/StrReqWorkspacePane";
-import { StktakeWorkspacePane } from "./stktake/StktakeWorkspacePane";
-import { StrWorkspacePane } from "./str/StrWorkspacePane";
 import { UomWorkspacePane } from "./uom/UomWorkspacePane";
 
 const INVENTORY_MODULE_PANES: Record<string, ComponentType<{ tabId: string }>> = {
@@ -17,16 +14,16 @@ const INVENTORY_MODULE_PANES: Record<string, ComponentType<{ tabId: string }>> =
   items: ItemsWorkspacePane,
   "item-whs": ItemWhsWorkspacePane,
   uom: UomWorkspacePane,
-  "str-req": StrReqWorkspacePane,
-  str: StrWorkspacePane,
-  greceipt: GreceiptWorkspacePane,
-  gissue: GissueWorkspacePane,
-  stktake: StktakeWorkspacePane,
   invpost: InvpostWorkspacePane,
 };
 
-/** One pane per inventory module under ``pages/inventory/<module>/`` (mirrors sales layout). */
+/** Masters use ``InventoryDocumentCrud``; stock documents use ``SapDocumentCrud`` (same shell as Sales/Purchase). */
 export function InventoryWorkspacePane({ moduleId, tabId }: { moduleId: string; tabId: string }) {
+  const sapDef = useMemo(() => (INVENTORY_SAP_MODULE_IDS.has(moduleId) ? getInventorySapModule(moduleId) : undefined), [moduleId]);
+  if (sapDef) {
+    return <SapDocumentCrud key={tabId} def={sapDef} workspaceTabId={tabId} />;
+  }
+
   const def = useMemo(() => getInventoryModule(moduleId), [moduleId]);
   const Pane = INVENTORY_MODULE_PANES[moduleId];
   if (!Pane || !def) {

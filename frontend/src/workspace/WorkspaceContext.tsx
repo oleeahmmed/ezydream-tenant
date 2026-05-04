@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 
 export const HOME_TAB_ID = "home";
 
-export type WorkspaceTabKind = "home" | "inventory" | "sales" | "purchase" | "production" | "finance";
+export type WorkspaceTabKind = "home" | "inventory" | "sales" | "purchase" | "production" | "finance" | "warehouse";
 
 export type WorkspaceTab = {
   id: string;
@@ -15,6 +15,7 @@ export type WorkspaceTab = {
   purchaseModuleId?: string;
   productionModuleId?: string;
   financeModuleId?: string;
+  warehouseModuleId?: string;
 };
 
 export type TabActions = {
@@ -39,6 +40,7 @@ type WorkspaceContextValue = {
   openPurchaseModule: (purchaseModuleId: string, label: string, navPath: string) => void;
   openProductionModule: (productionModuleId: string, label: string, navPath: string) => void;
   openFinanceModule: (financeModuleId: string, label: string, navPath: string) => void;
+  openWarehouseModule: (warehouseModuleId: string, label: string, navPath: string) => void;
   goHome: () => void;
   registerTabActions: (tabId: string, actions: TabActions | null) => void;
   runFind: () => void;
@@ -48,9 +50,26 @@ type WorkspaceContextValue = {
   runNext: () => void;
   runLast: () => void;
   runPrint: () => void;
+  /** Right-hand User-Defined Fields column on document windows (SAP-style). */
+  udfSidebarVisible: boolean;
+  setUdfSidebarVisible: (visible: boolean) => void;
+  toggleUdfSidebar: () => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+
+const UDF_SIDEBAR_STORAGE_KEY = "ez_udf_sidebar_visible";
+
+function readUdfSidebarVisible(): boolean {
+  try {
+    const s = localStorage.getItem(UDF_SIDEBAR_STORAGE_KEY);
+    if (s === "0") return false;
+    if (s === "1") return true;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
 
 function newWorkspaceTabId(prefix: string): string {
   return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
@@ -61,6 +80,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     { id: HOME_TAB_ID, label: "🏠 Home", kind: "home", navPath: "/" },
   ]);
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID);
+  const [udfSidebarVisible, setUdfSidebarVisible] = useState(readUdfSidebarVisible);
   const actionsRef = useRef<Record<string, TabActions>>({});
 
   const activeNavPath = useMemo(() => {
@@ -151,6 +171,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setActiveTabId(id);
   }, []);
 
+  const openWarehouseModule = useCallback((warehouseModuleId: string, label: string, navPath: string) => {
+    const id = newWorkspaceTabId("whs");
+    setTabs((prev) => [
+      ...prev,
+      {
+        id,
+        label,
+        kind: "warehouse" as const,
+        warehouseModuleId,
+        navPath,
+      },
+    ]);
+    setActiveTabId(id);
+  }, []);
+
   const closeTab = useCallback((id: string) => {
     if (id === HOME_TAB_ID) return;
     setTabs((prev) => {
@@ -197,6 +232,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     actionsRef.current[activeTabId]?.print?.();
   }, [activeTabId]);
 
+  const persistUdf = useCallback((visible: boolean) => {
+    try {
+      localStorage.setItem(UDF_SIDEBAR_STORAGE_KEY, visible ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setUdfSidebarVisibleWrapped = useCallback(
+    (visible: boolean) => {
+      setUdfSidebarVisible(visible);
+      persistUdf(visible);
+    },
+    [persistUdf],
+  );
+
+  const toggleUdfSidebar = useCallback(() => {
+    setUdfSidebarVisible((prev) => {
+      const next = !prev;
+      persistUdf(next);
+      return next;
+    });
+  }, [persistUdf]);
+
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       tabs,
@@ -209,6 +268,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       openPurchaseModule,
       openProductionModule,
       openFinanceModule,
+      openWarehouseModule,
       goHome,
       registerTabActions,
       runFind,
@@ -218,6 +278,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       runNext,
       runLast,
       runPrint,
+      udfSidebarVisible,
+      setUdfSidebarVisible: setUdfSidebarVisibleWrapped,
+      toggleUdfSidebar,
     }),
     [
       tabs,
@@ -230,6 +293,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       openPurchaseModule,
       openProductionModule,
       openFinanceModule,
+      openWarehouseModule,
       goHome,
       registerTabActions,
       runFind,
@@ -239,6 +303,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       runNext,
       runLast,
       runPrint,
+      udfSidebarVisible,
+      setUdfSidebarVisibleWrapped,
+      toggleUdfSidebar,
     ],
   );
 

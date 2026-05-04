@@ -21,13 +21,26 @@ export type FormsetRow = {
   BaseType?: string;
   BaseEntry?: string;
   BaseLine?: string;
+  /** Inventory / transfer lines */
+  OpenQty?: string;
+  FromWhsCod?: string;
+  Account?: string;
+  InQty?: string;
+  OutQty?: string;
+  Difference?: string;
+  TargetType?: string;
+  TrgetEntry?: string;
+  BaseRef?: string;
 };
 
 export function toInputDate(v: unknown): string {
   if (v == null || v === "") return "";
   const s = String(v);
-  if (s.length >= 10) return s.slice(0, 10);
-  return s;
+  const d = s.length >= 10 ? s.slice(0, 10) : s.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
+  const ms = Date.parse(`${d}T12:00:00`);
+  if (Number.isNaN(ms)) return "";
+  return d;
 }
 
 export function todayISO(): string {
@@ -50,6 +63,15 @@ export function emptyFormsetRow(): FormsetRow {
     BaseType: "",
     BaseEntry: "",
     BaseLine: "",
+    OpenQty: "1",
+    FromWhsCod: "01",
+    Account: "",
+    InQty: "0",
+    OutQty: "0",
+    Difference: "0",
+    TargetType: "-1",
+    TrgetEntry: "",
+    BaseRef: "",
   };
 }
 
@@ -61,7 +83,6 @@ export function formsetPad(rows: FormsetRow[]): FormsetRow[] {
 
 export function apiLineToFormset(r: Row, editKeys?: string[]): FormsetRow {
   const base = emptyFormsetRow();
-  const keys = editKeys;
   const out: FormsetRow = {
     ...base,
     ItemCode: String(r.ItemCode ?? ""),
@@ -78,13 +99,30 @@ export function apiLineToFormset(r: Row, editKeys?: string[]): FormsetRow {
     BaseType: r.BaseType != null ? String(r.BaseType) : "",
     BaseEntry: r.BaseEntry != null ? String(r.BaseEntry) : "",
     BaseLine: r.BaseLine != null ? String(r.BaseLine) : "",
+    OpenQty: String(r.OpenQty ?? r.Quantity ?? "1"),
+    FromWhsCod: String(r.FromWhsCod ?? ""),
+    Account: String(r.Account ?? ""),
+    InQty: String(r.InQty ?? "0"),
+    OutQty: String(r.OutQty ?? "0"),
+    Difference: String(r.Difference ?? "0"),
+    TargetType: r.TargetType != null ? String(r.TargetType) : "-1",
+    TrgetEntry: r.TrgetEntry != null ? String(r.TrgetEntry) : "",
+    BaseRef: String(r.BaseRef ?? ""),
   };
-  if (keys && !keys.includes("Dscription")) out.Dscription = "";
-  if (keys && !keys.includes("DiscPrcnt")) out.DiscPrcnt = "0";
-  if (keys && !keys.includes("LineTotal")) {
-    out.LineTotal = keys.includes("DiscPrcnt")
+  if (editKeys && !editKeys.includes("Dscription")) out.Dscription = "";
+  if (editKeys && !editKeys.includes("DiscPrcnt")) out.DiscPrcnt = "0";
+  if (editKeys && !editKeys.includes("LineTotal")) {
+    out.LineTotal = editKeys.includes("DiscPrcnt")
       ? computeLineTotalString(out.Quantity, out.Price, out.DiscPrcnt)
       : lineNetNoDisc(out.Quantity, out.Price);
+  }
+  if (editKeys) {
+    const o = out as unknown as Record<string, string>;
+    for (const k of editKeys) {
+      if (k === "LineNum" || k === "DocEntry") continue;
+      if (r[k] === undefined || r[k] === null) continue;
+      o[k] = String(r[k]);
+    }
   }
   return out;
 }
@@ -251,6 +289,7 @@ export function buildLinePostJson(def: DocumentRegistryEntry, parentPk: string |
 
   for (const k of editKeys) {
     if (k === "DocEntry" || k === "Father" || k === "LineNum") continue;
+    if (k === "Canceled") continue;
     if (k === "ItemCode") {
       o.ItemCode = r.ItemCode.trim();
       continue;
@@ -303,6 +342,43 @@ export function buildLinePostJson(def: DocumentRegistryEntry, parentPk: string |
     }
     if (k === "BaseLine") {
       o.BaseLine = numOrNull(r.BaseLine);
+      continue;
+    }
+    if (k === "OpenQty") {
+      o.OpenQty = (r as FormsetRow).OpenQty != null && (r as FormsetRow).OpenQty !== "" ? String((r as FormsetRow).OpenQty) : r.Quantity || "1";
+      continue;
+    }
+    if (k === "FromWhsCod") {
+      o.FromWhsCod = String((r as FormsetRow).FromWhsCod ?? "");
+      continue;
+    }
+    if (k === "Account") {
+      o.Account = String((r as FormsetRow).Account ?? "");
+      continue;
+    }
+    if (k === "InQty") {
+      o.InQty = String((r as FormsetRow).InQty ?? "0");
+      continue;
+    }
+    if (k === "OutQty") {
+      o.OutQty = String((r as FormsetRow).OutQty ?? "0");
+      continue;
+    }
+    if (k === "Difference") {
+      o.Difference = String((r as FormsetRow).Difference ?? "0");
+      continue;
+    }
+    if (k === "TargetType") {
+      const t = String((r as FormsetRow).TargetType ?? "").trim();
+      o.TargetType = t === "" ? -1 : Number(t.replace(",", ".")) || -1;
+      continue;
+    }
+    if (k === "TrgetEntry") {
+      o.TrgetEntry = numOrNull(String((r as FormsetRow).TrgetEntry ?? ""));
+      continue;
+    }
+    if (k === "BaseRef") {
+      o.BaseRef = String((r as FormsetRow).BaseRef ?? "");
       continue;
     }
   }

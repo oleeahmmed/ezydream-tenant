@@ -5,27 +5,7 @@ export const FINANCE_STUB_MODULES: Record<string, { sap: string; title: string; 
   "asset-groups": { sap: "OAGS", title: "Asset Groups", hint: "Table OAGS." },
   "credit-cards": { sap: "OCTD", title: "Credit Card Management", hint: "Table OCTD." },
   "vat-groups": { sap: "OVTG", title: "VAT Groups", hint: "Table OVTG (distinct from tax codes OSTC)." },
-  "jdt1-lines": {
-    sap: "JDT1",
-    title: "Journal Entry Lines",
-    hint: "GET/POST /api/finance/journal-entry-lines — use trans_id query when listing.",
-  },
-  "rct1-lines": {
-    sap: "RCT1",
-    title: "Incoming Payment Lines",
-    hint: "GET/POST /api/finance/incoming-payment-lines — use doc_entry query.",
-  },
-  "vpm1-lines": {
-    sap: "VPM1",
-    title: "Outgoing Payment Lines",
-    hint: "GET/POST /api/finance/outgoing-payment-lines — use doc_entry query.",
-  },
   "ar-credit-memo": { sap: "ORIN / RIN1", title: "A/R Credit Memos", hint: "Not implemented in this codebase yet." },
-  "bgt1-lines": {
-    sap: "BGT1",
-    title: "Budget Lines",
-    hint: "GET/POST /api/finance/budget-lines — use acct_code (and optional month) query.",
-  },
   "asset-values": { sap: "OFAV", title: "Asset Values", hint: "Table OFAV." },
   "asset-revaluation": { sap: "OAFR", title: "Asset Revaluation", hint: "Table OAFR." },
   "asset-class-areas": { sap: "AAC1", title: "Asset Classes — Depreciation Areas", hint: "Table AAC1." },

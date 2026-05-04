@@ -46,6 +46,8 @@ const HEADER_PO: HeaderField[] = [
   { key: "DocStatus", label: "Status", kind: "text" },
   { key: "DocDate", label: "Posting Date", kind: "date" },
   { key: "DocTotal", label: "Doc Total", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -56,6 +58,8 @@ const HEADER_GRPO: HeaderField[] = [
   { key: "CardName", label: "Name", kind: "text" },
   { key: "DocDate", label: "Posting Date", kind: "date" },
   { key: "DocStatus", label: "Status", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -65,6 +69,8 @@ const HEADER_VR: HeaderField[] = [
   { key: "CardCode", label: "Vendor", kind: "text" },
   { key: "CardName", label: "Name", kind: "text" },
   { key: "DocDate", label: "Posting Date", kind: "date" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -76,6 +82,8 @@ const HEADER_AP: HeaderField[] = [
   { key: "DocDate", label: "Posting Date", kind: "date" },
   { key: "DocTotal", label: "Doc Total", kind: "text" },
   { key: "VatSum", label: "Tax", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -86,6 +94,8 @@ const HEADER_PRQ: HeaderField[] = [
   { key: "Requester", label: "Requester", kind: "text" },
   { key: "DocDate", label: "Posting Date", kind: "date" },
   { key: "DocDueDate", label: "Due Date", kind: "date" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -133,12 +143,13 @@ export const PURCHASE_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_PRQ,
     headerFields: HEADER_PRQ,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     partnerPickerFieldKey: null,
     footerLeftKeys: [],
     footerTotalsKeys: [],
     showDocCurHint: false,
-    createKeys: ["DocNum", "DocStatus", "Requester", "DocDate", "DocDueDate"],
-    patchKeys: ["DocNum", "DocStatus", "Requester", "DocDate", "DocDueDate", "Canceled"],
+    createKeys: ["DocNum", "DocStatus", "Requester", "DocDate", "DocDueDate", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "DocStatus", "Requester", "DocDate", "DocDueDate", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/purchase-request-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/purchase-request-lines/${de}/${ln}`,
@@ -155,12 +166,13 @@ export const PURCHASE_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_VENDOR,
     headerFields: HEADER_PO,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     listButtonTitleBp: "Vendor list",
     footerLeftKeys: [],
     footerTotalsKeys: ["DocTotal"],
     showDocCurHint: false,
-    createKeys: ["DocNum", "CardCode", "CardName", "DocStatus", "DocDate", "DocTotal"],
-    patchKeys: ["DocNum", "CardCode", "CardName", "DocStatus", "DocDate", "DocTotal", "Canceled"],
+    createKeys: ["DocNum", "CardCode", "CardName", "DocStatus", "DocDate", "DocTotal", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "CardCode", "CardName", "DocStatus", "DocDate", "DocTotal", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/purchase-order-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/purchase-order-lines/${de}/${ln}`,
@@ -177,12 +189,13 @@ export const PURCHASE_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_GRPO,
     headerFields: HEADER_GRPO,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     listButtonTitleBp: "Vendor list",
     footerLeftKeys: [],
     footerTotalsKeys: [],
     showDocCurHint: false,
-    createKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus"],
-    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus", "Canceled"],
+    createKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/goods-receipt-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/goods-receipt-lines/${de}/${ln}`,
@@ -199,12 +212,13 @@ export const PURCHASE_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_GRPO.filter((c) => c.key !== "DocStatus"),
     headerFields: HEADER_VR,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     listButtonTitleBp: "Vendor list",
     footerLeftKeys: [],
     footerTotalsKeys: [],
     showDocCurHint: false,
-    createKeys: ["DocNum", "CardCode", "CardName", "DocDate"],
-    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus", "Canceled"],
+    createKeys: ["DocNum", "CardCode", "CardName", "DocDate", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocStatus", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/vendor-return-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/vendor-return-lines/${de}/${ln}`,
@@ -221,12 +235,13 @@ export const PURCHASE_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_AP,
     headerFields: HEADER_AP,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     listButtonTitleBp: "Vendor list",
     footerLeftKeys: [],
     footerTotalsKeys: ["DocTotal", "VatSum"],
     showDocCurHint: false,
-    createKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocTotal", "VatSum"],
-    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocTotal", "VatSum", "Canceled"],
+    createKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocTotal", "VatSum", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "CardCode", "CardName", "DocDate", "DocTotal", "VatSum", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/ap-invoice-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/ap-invoice-lines/${de}/${ln}`,

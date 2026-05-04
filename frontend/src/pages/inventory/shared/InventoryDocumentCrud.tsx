@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiFetch } from "../../../lib/apiFetch";
+import { resolveSelectControlState, useFieldChoiceLookup } from "../../../lib/useFieldChoiceLookup";
 import { useWorkspace } from "../../../workspace/WorkspaceContext";
 import { DocumentFindModal } from "../../../ui/DocumentFindModal";
-import { DocumentNotificationStrip } from "../../../ui/DocumentNotificationStrip";
+import { documentNoticeLevel } from "../../../ui/DocumentNotificationStrip";
+import { ItemGroupSearchModal } from "../../../ui/ItemGroupSearchModal";
 import { ItemSearchModal } from "../../../ui/ItemSearchModal";
 import { LiveClock } from "../../../ui/LiveClock";
 import { SapAutocompleteInput } from "../../../ui/SapAutocompleteInput";
+import { SapDateField } from "../../../ui/SapDateField";
 import type { HeaderField, InvRegistryEntry } from "../registry";
+import { toInputDate } from "../../shared/formset";
 
 type Row = Record<string, unknown>;
 
@@ -15,13 +19,6 @@ type ListPage = { items: Row[]; limit: number; offset: number };
 const INV_API = "/api/inventory";
 
 type ItemB1Tab = "general" | "purchasing" | "sales" | "stock" | "planning";
-
-function toInputDate(v: unknown): string {
-  if (v == null || v === "") return "";
-  const s = String(v);
-  if (s.length >= 10) return s.slice(0, 10);
-  return s;
-}
 
 function toInputDt(v: unknown): string {
   if (v == null || v === "") return "";
@@ -65,7 +62,7 @@ function buildPatchBody(def: InvRegistryEntry, form: Row, orig: Row | null): Row
 
 /** Inventory document / master CRUD — layout aligned with sales documents. */
 export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistryEntry; workspaceTabId: string }) {
-  const { registerTabActions, openInventoryModule } = useWorkspace();
+  const { registerTabActions } = useWorkspace();
   const formFirst = Boolean(def.formFirstListOnFind);
   const isItemMaster = def.id === "items";
   const roScope = def.readonlyEnv ?? "inventory";
@@ -89,12 +86,14 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
   const [itemB1Tab, setItemB1Tab] = useState<ItemB1Tab>("general");
   const [whRows, setWhRows] = useState<Row[]>([]);
   const [itemSearchOpen, setItemSearchOpen] = useState(false);
+  const [itemGroupSearchOpen, setItemGroupSearchOpen] = useState(false);
   const [findModalOpen, setFindModalOpen] = useState(false);
   const [findFilter, setFindFilter] = useState("");
   const [findRows, setFindRows] = useState<Row[]>([]);
   const [findBusy, setFindBusy] = useState(false);
   const [findErr, setFindErr] = useState("");
   const listOffset = useRef(0);
+  const choiceLookup = useFieldChoiceLookup(def.listPath);
 
   const loadList = useCallback(
     async (searchPrefix?: string) => {
@@ -189,6 +188,9 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
     const blank: Row = {};
     for (const h of def.headerFields) {
       blank[h.key] = "";
+    }
+    if (def.id === "items") {
+      blank.ItmsGrpNam = "";
     }
     setForm(blank);
     setOrig(null);
@@ -359,33 +361,118 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
     const ro = !canUpdate || h.readonly || (h.pk && mode === "edit");
     const cls = "field-input field-input-grow" + (ro ? " readonly" : "");
     if (h.kind === "date" || h.kind === "datetime-local") {
+      if (h.kind === "date") {
+        return (
+          <SapDateField
+            className={"field-input-grow" + (ro ? " readonly" : "")}
+            readOnly={ro}
+            value={v}
+            onChange={(next) => setField(h.key, next)}
+            aria-label={h.label}
+          />
+        );
+      }
       return (
         <input
           className={cls}
           readOnly={ro}
-          type={h.kind === "date" ? "date" : "datetime-local"}
+          type="datetime-local"
           value={v}
           onChange={(e) => setField(h.key, e.target.value)}
         />
       );
     }
+    const gid = choiceLookup?.hints[h.key];
+    const opts = gid ? choiceLookup.groupMap.get(gid) : undefined;
+    if (opts?.length) {
+      const { selectValue, needsUnknownOption } = resolveSelectControlState(v, opts);
+      return (
+        <select
+          className={cls + " field-select"}
+          aria-label={h.label}
+          disabled={ro}
+          value={selectValue}
+          onChange={
+            ro
+              ? undefined
+              : (e) => {
+                  const raw = e.target.value;
+                  if (h.kind === "number") {
+                    setField(h.key, raw === "" ? "" : String(Number(raw)));
+                  } else {
+                    setField(h.key, raw);
+                  }
+                }
+          }
+        >
+          <option value="">—</option>
+          {needsUnknownOption ? <option value={selectValue}>{selectValue}</option> : null}
+          {opts.map((o) => (
+            <option key={`${gid}:${String(o.value)}`} value={String(o.value)}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
     return <input className={cls} readOnly={ro} type={h.kind === "number" ? "number" : "text"} value={v} onChange={(e) => setField(h.key, e.target.value)} />;
+  }
+
+  function renderLineEditKey(k: string) {
+    const v = lineForm[k] != null ? String(lineForm[k]) : "";
+    const cls = "field-input field-input-grow";
+    const gid = choiceLookup?.hints[k];
+    const opts = gid ? choiceLookup.groupMap.get(gid) : undefined;
+    if (opts?.length) {
+      const numChoice = opts.every((o) => typeof o.value === "number");
+      const { selectValue, needsUnknownOption } = resolveSelectControlState(v, opts);
+      return (
+        <select
+          className={cls + " field-select"}
+          aria-label={k}
+          value={selectValue}
+          onChange={(e) => {
+            const raw = e.target.value;
+            setLineForm((f) => ({
+              ...f,
+              [k]: numChoice && raw !== "" ? String(Number(raw)) : raw,
+            }));
+          }}
+        >
+          <option value="">—</option>
+          {needsUnknownOption ? <option value={selectValue}>{selectValue}</option> : null}
+          {opts.map((o) => (
+            <option key={`${gid}:${String(o.value)}`} value={String(o.value)}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    return <input className={cls} value={v} onChange={(e) => setLineForm((f) => ({ ...f, [k]: e.target.value }))} />;
   }
 
   function wrapItemGroupLink(h: HeaderField, node: ReactNode) {
     if (!isItemMaster || h.key !== "ItmsGrpCod") return node;
-    const v = form.ItmsGrpCod != null ? String(form.ItmsGrpCod) : "";
+    const code = form.ItmsGrpCod != null && String(form.ItmsGrpCod).trim() !== "" ? String(form.ItmsGrpCod) : "";
+    const name = String(form.ItmsGrpNam ?? "").trim();
+    /** Show group name in the box; backend still stores ``ItmsGrpCod``. Tooltip shows code for power users. */
+    const display = name || code;
     const ro = !canUpdate || h.readonly || (h.pk && mode === "edit");
     return (
       <SapAutocompleteInput
         wrapperClassName="sap-input-autocomplete--grow"
         inputClassName={"field-input field-input-grow" + (ro ? " readonly" : "")}
-        type="number"
-        value={v}
-        readOnly={ro}
-        onChange={(e) => setField("ItmsGrpCod", e.target.value)}
-        onOpenList={() => openInventoryModule("item-groups", "Item Groups (OITB)", "/inventory/item-groups")}
-        listButtonTitle="Open item groups"
+        type="text"
+        inputMode="text"
+        value={display}
+        readOnly
+        keepTriggerWhenReadOnly={!ro}
+        title={code ? `Saved code: ${code}${name ? ` — ${name}` : ""}` : undefined}
+        onOpenList={() => {
+          if (!ro) setItemGroupSearchOpen(true);
+        }}
+        listButtonTitle="Item group list"
         aria-label="Items group"
       />
     );
@@ -393,16 +480,20 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
 
   function wrapItemCodePicker(h: HeaderField, node: ReactNode) {
     if (!isItemMaster || h.key !== "ItemCode") return node;
-    const v = form.ItemCode != null ? String(form.ItemCode) : "";
+    const code = form.ItemCode != null && String(form.ItemCode).trim() !== "" ? String(form.ItemCode) : "";
+    const name = String(form.ItemName ?? "").trim();
+    const display = name || code;
     const ro = !canUpdate || (h.pk && mode === "edit");
     return (
       <SapAutocompleteInput
         wrapperClassName="sap-input-autocomplete--grow"
         inputClassName={"field-input field-input-grow" + (ro ? " readonly" : "")}
         type="text"
-        value={v}
-        readOnly={ro}
-        onChange={(e) => setField("ItemCode", e.target.value)}
+        inputMode="text"
+        value={display}
+        readOnly
+        keepTriggerWhenReadOnly={!ro}
+        title={code ? `Item no.: ${code}${name ? ` — ${name}` : ""}` : undefined}
         onOpenList={() => {
           if (!ro) setItemSearchOpen(true);
         }}
@@ -708,11 +799,7 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
                       {lines.editKeys.map((k) => (
                         <div key={k} className="field-row">
                           <span className="field-label">{k}</span>
-                          <input
-                            className="field-input field-input-grow"
-                            value={lineForm[k] != null ? String(lineForm[k]) : ""}
-                            onChange={(e) => setLineForm((f) => ({ ...f, [k]: e.target.value }))}
-                          />
+                          {renderLineEditKey(k)}
                         </div>
                       ))}
                     </div>
@@ -752,7 +839,16 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
 
         <div className="ez-doc-status-strip">
           <span className="ez-doc-status-segment ez-doc-status-segment--muted">{def.title}</span>
-          <span className="ez-doc-status-segment ez-doc-status-segment--grow" />
+          <span className="ez-doc-status-segment ez-doc-status-segment--grow">
+            {err.trim() || msg.trim() ? (
+              <span
+                className={`ez-doc-status-message ez-doc-status-message--${documentNoticeLevel(err, msg)}`}
+                title={err.trim() ? err : msg}
+              >
+                {err.trim() ? err : msg}
+              </span>
+            ) : null}
+          </span>
           <span className="ez-doc-status-segment">
             {mode === "new"
               ? "Add mode"
@@ -765,7 +861,6 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
           </span>
           <LiveClock />
         </div>
-        <DocumentNotificationStrip err={err} msg={msg} />
         </div>
       </div>
       <DocumentFindModal
@@ -781,6 +876,17 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
         onClose={() => setFindModalOpen(false)}
         onPick={(row, idx) => void onFindPick(row, idx)}
         onRefresh={() => void loadFindRows(findFilter)}
+      />
+      <ItemGroupSearchModal
+        open={itemGroupSearchOpen}
+        onClose={() => setItemGroupSearchOpen(false)}
+        onPick={(row) => {
+          setForm((f) => ({
+            ...f,
+            ItmsGrpCod: String(row.ItmsGrpCod ?? ""),
+            ItmsGrpNam: String(row.ItmsGrpNam ?? ""),
+          }));
+        }}
       />
       <ItemSearchModal
         open={itemSearchOpen}

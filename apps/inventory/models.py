@@ -17,17 +17,10 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.core import b1_ui_labels as ui
-
-
-def validate_yes_no_char(value: str) -> None:
-    """Raise if the value is not SAP-style Y/N."""
-    if value not in ("Y", "N"):
-        raise ValidationError("Use Y or N.")
-
-
-def _doc_status_oc(value: str) -> None:
-    if value not in ("O", "C"):
-        raise ValidationError({"DocStatus": "Use O (open) or C (closed)."})
+from apps.core.beginner_style.model_validation import (
+    validate_finance_document_status_open_or_closed,
+    validate_yes_no_field,
+)
 
 
 class OITB(models.Model):
@@ -47,8 +40,8 @@ class OITB(models.Model):
         return f"{self.ItmsGrpCod} — {self.ItmsGrpNam}"
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        validate_yes_no_char(self.Locked)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Locked, "Locked")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -142,12 +135,12 @@ class OITM(models.Model):
             self.ItemCode = self.ItemCode.strip()
         if not self.ItemCode:
             raise ValidationError({"ItemCode": "ItemCode is required."})
-        validate_yes_no_char(self.InvntItem)
-        validate_yes_no_char(self.ByWh)
-        validate_yes_no_char(self.SalItem)
-        validate_yes_no_char(self.PrchseItem)
-        validate_yes_no_char(self.ValidFor)
-        validate_yes_no_char(self.Frozen)
+        validate_yes_no_field(self.InvntItem, "InvntItem")
+        validate_yes_no_field(self.ByWh, "ByWh")
+        validate_yes_no_field(self.SalItem, "SalItem")
+        validate_yes_no_field(self.PrchseItem, "PrchseItem")
+        validate_yes_no_field(self.ValidFor, "ValidFor")
+        validate_yes_no_field(self.Frozen, "Frozen")
         self.DfltWH = (self.DfltWH or "").strip()[:20]
 
     def save(self, *args, **kwargs):
@@ -215,8 +208,8 @@ class OITW(models.Model):
         return f"{self.ItemCode} @ {self.WhsCode}"
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        validate_yes_no_char(self.Locked)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_yes_no_field(self.Locked, "Locked")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -245,8 +238,7 @@ class OUOM(models.Model):
             self.UomCode = self.UomCode.strip()
         if not self.UomCode:
             raise ValidationError({"UomCode": "UomCode is required."})
-        if self.Locked not in ("Y", "N"):
-            raise ValidationError({"Locked": "Use Y or N."})
+        validate_yes_no_field(self.Locked, "Locked")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -295,6 +287,8 @@ class OWTQ(models.Model):
     Filler = models.CharField(ui.CREATED_BY, max_length=8, db_index=True)
     Comments = models.CharField(ui.REMARKS, max_length=254, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -303,10 +297,10 @@ class OWTQ(models.Model):
         verbose_name_plural = _("Inventory transfer requests")
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        _doc_status_oc(self.DocStatus)
-        validate_yes_no_char(self.Handwrtten)
-        validate_yes_no_char(self.Printed)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -376,7 +370,7 @@ class WTQ1(models.Model):
     def clean(self) -> None:
         if self.LineStatus not in ("O", "C"):
             raise ValidationError({"LineStatus": "Use O (open) or C (closed)."})
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -425,6 +419,8 @@ class OWTR(models.Model):
     Filler = models.CharField(ui.CREATED_BY, max_length=20, db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -433,10 +429,10 @@ class OWTR(models.Model):
         verbose_name_plural = _("Inventory transfers")
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        _doc_status_oc(self.DocStatus)
-        validate_yes_no_char(self.Handwrtten)
-        validate_yes_no_char(self.Printed)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -497,7 +493,7 @@ class WTR1(models.Model):
         ]
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -545,6 +541,8 @@ class OIGN(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -553,10 +551,10 @@ class OIGN(models.Model):
         verbose_name_plural = _("Goods receipts")
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        _doc_status_oc(self.DocStatus)
-        validate_yes_no_char(self.Handwrtten)
-        validate_yes_no_char(self.Printed)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -618,7 +616,7 @@ class IGN1(models.Model):
         ]
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -666,6 +664,8 @@ class OIGE(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -674,10 +674,10 @@ class OIGE(models.Model):
         verbose_name_plural = _("Goods issues")
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        _doc_status_oc(self.DocStatus)
-        validate_yes_no_char(self.Handwrtten)
-        validate_yes_no_char(self.Printed)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -740,7 +740,7 @@ class IGE1(models.Model):
         ]
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -788,6 +788,8 @@ class OINC(models.Model):
     OwnerCode = models.CharField(ui.OWNER, max_length=50, blank=True, default="", db_index=True)
     Comments = models.TextField(ui.REMARKS, blank=True, default="")
     JrnlMemo = models.TextField(ui.JOURNAL_MEMO, blank=True, default="")
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -796,10 +798,10 @@ class OINC(models.Model):
         verbose_name_plural = _("Inventory postings")
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
-        _doc_status_oc(self.DocStatus)
-        validate_yes_no_char(self.Handwrtten)
-        validate_yes_no_char(self.Printed)
+        validate_yes_no_field(self.Canceled, "Canceled")
+        validate_finance_document_status_open_or_closed(self.DocStatus)
+        validate_yes_no_field(self.Handwrtten, "Handwrtten")
+        validate_yes_no_field(self.Printed, "Printed")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -837,7 +839,7 @@ class INC1(models.Model):
         ]
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -865,6 +867,8 @@ class OINM(models.Model):
     )
     CreatedBy = models.CharField(ui.CREATED_BY, max_length=50, blank=True, default="", db_index=True)
     DocTime = models.DateTimeField(ui.POSTING_DATE_TIME, default=timezone.now, db_index=True)
+    U_UserFld1 = models.CharField(ui.USER_FIELD_1, max_length=254, blank=True, default="", db_column="U_UserFld1")
+    U_UserFld2 = models.CharField(ui.USER_FIELD_2, max_length=254, blank=True, default="", db_column="U_UserFld2")
     Canceled = models.CharField(ui.CANCELED, max_length=1, default="N", db_index=True)
 
     class Meta:
@@ -879,7 +883,7 @@ class OINM(models.Model):
         return f"{self.TransNum} {self.TransType} {self.ItemCode}"
 
     def clean(self) -> None:
-        validate_yes_no_char(self.Canceled)
+        validate_yes_no_field(self.Canceled, "Canceled")
 
     def save(self, *args, **kwargs):
         self.full_clean()

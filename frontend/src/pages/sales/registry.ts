@@ -44,6 +44,8 @@ const HEADER_WITH_STATUS: HeaderField[] = [
   { key: "Comments", label: "Remarks", kind: "text" },
   { key: "SlpCode", label: "Sales Emp.", kind: "number" },
   { key: "OwnerCode", label: "Owner", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -64,6 +66,8 @@ const HEADER_INVOICE: HeaderField[] = [
   { key: "Comments", label: "Remarks", kind: "text" },
   { key: "SlpCode", label: "Sales Emp.", kind: "number" },
   { key: "OwnerCode", label: "Owner", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -96,6 +100,7 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_STD,
     headerFields: HEADER_WITH_STATUS,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     createKeys: [
       "DocNum",
       "CardCode",
@@ -113,6 +118,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
     ],
     patchKeys: [
       "DocNum",
@@ -131,6 +138,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
       "Canceled",
     ],
     lines: {
@@ -149,6 +158,7 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_STD,
     headerFields: HEADER_WITH_STATUS,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     createKeys: [
       "DocNum",
       "CardCode",
@@ -166,6 +176,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
     ],
     patchKeys: [
       "DocNum",
@@ -184,6 +196,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
       "Canceled",
     ],
     lines: {
@@ -202,6 +216,7 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_STD,
     headerFields: HEADER_WITH_STATUS,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     createKeys: [
       "DocNum",
       "CardCode",
@@ -219,6 +234,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
     ],
     patchKeys: [
       "DocNum",
@@ -237,6 +254,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
       "Canceled",
     ],
     lines: {
@@ -255,6 +274,7 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_STD,
     headerFields: HEADER_WITH_STATUS,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     createKeys: [
       "DocNum",
       "CardCode",
@@ -272,6 +292,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
     ],
     patchKeys: [
       "DocNum",
@@ -290,6 +312,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
       "Canceled",
     ],
     lines: {
@@ -308,6 +332,7 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_INV,
     headerFields: HEADER_INVOICE,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     createKeys: [
       "DocNum",
       "CardCode",
@@ -324,6 +349,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
     ],
     patchKeys: [
       "DocNum",
@@ -341,6 +368,8 @@ export const SALES_REGISTRY: SalesRegistryEntry[] = [
       "Comments",
       "SlpCode",
       "OwnerCode",
+      "U_UserFld1",
+      "U_UserFld2",
       "Canceled",
     ],
     lines: {

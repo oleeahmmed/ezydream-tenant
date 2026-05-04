@@ -1,7 +1,8 @@
 """
-Purchase Bolt API — ভিউ (``django_bolt_guide.md``: ``APIView``, ``BadRequest`` / ``NotFound``)।
+Purchase Bolt API — requests, orders, GRPO, vendor returns, A/P invoices.
 
-সিরিয়ালাইজার: ``serializers.py``। কোনো ``bolt_tools`` নেই।
+Shared list helpers: ``get_list_pagination_for_request``, ``get_boolean_query_flag_is_true``
+(``apps.core.beginner_style``). Serializers: ``serializers.py``.
 """
 
 from __future__ import annotations
@@ -11,15 +12,21 @@ from decimal import Decimal
 from typing import Any
 
 from asgiref.sync import sync_to_async
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
-from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
+from apps.core.beginner_style import (
+    async_recalculate_business_partner_rollups_for_card_codes,
+    async_run_sync_callable_and_map_validation_error_to_bad_request,
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+    get_optional_int_from_query,
+)
 from apps.finance.services.auto_journal import sync_ap_invoice_journal
 from apps.inventory.services import (
     rebuild_oitw_committed_and_on_order,
@@ -77,45 +84,26 @@ from .serializers import (
 PURCHASE_API_PREFIX = "/api/purchase"
 
 
-async def _bp_recalc_cards(*card_codes: str | None) -> None:
-    for cc in card_codes:
-        s = (cc or "").strip()
-        if s:
-            await sync_to_async(recalculate_bp_rollups)(s)
+async def async_rebuild_inventory_totals_after_purchase_document_change() -> None:
+    """
+    Recompute cached warehouse quantities (committed / on-order) after purchase-side stock events.
 
-
-async def _purchase_stock_sync(fn, *args) -> None:
-    try:
-        await sync_to_async(fn)(*args)
-    except ValidationError as exc:
-        msgs = list(getattr(exc, "messages", []))
-        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
-        raise BadRequest(detail=detail) from exc
-
-
-async def _rebuild_inv_totals() -> None:
+    Called after GRPO, vendor return, or similar documents touch inventory.
+    """
     await sync_to_async(rebuild_oitw_committed_and_on_order)()
 
 
-class PurchaseRequestCollection(APIView):
+class PurchaseRequestListCreateView(APIView):
     """Purchase request header (OPRQ): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> PurchaseRequestPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> PurchaseRequestPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OPRQ.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             q = Q(Requester__istartswith=search_prefix)
@@ -132,6 +120,8 @@ class PurchaseRequestCollection(APIView):
                     Requester=o.Requester,
                     DocDate=o.DocDate,
                     DocDueDate=o.DocDueDate,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -150,6 +140,8 @@ class PurchaseRequestCollection(APIView):
             Requester=data.Requester.strip(),
             DocDate=data.DocDate,
             DocDueDate=data.DocDueDate,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
         return PurchaseRequestResponse(
@@ -159,11 +151,13 @@ class PurchaseRequestCollection(APIView):
             Requester=header.Requester,
             DocDate=header.DocDate,
             DocDueDate=header.DocDueDate,
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class PurchaseRequestDetail(APIView):
+class PurchaseRequestDetailView(APIView):
     """Single purchase request header: GET / PATCH / DELETE (soft ``Canceled='Y'``)."""
 
     auth = [JWTAuthentication()]
@@ -175,7 +169,7 @@ class PurchaseRequestDetail(APIView):
         except OPRQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return PurchaseRequestResponse(
             DocEntry=o.DocEntry,
@@ -184,6 +178,8 @@ class PurchaseRequestDetail(APIView):
             Requester=o.Requester,
             DocDate=o.DocDate,
             DocDueDate=o.DocDueDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -193,7 +189,7 @@ class PurchaseRequestDetail(APIView):
         except OPRQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -208,6 +204,10 @@ class PurchaseRequestDetail(APIView):
             o.DocDate = data.DocDate
         if data.DocDueDate is not None:
             o.DocDueDate = data.DocDueDate
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -221,6 +221,8 @@ class PurchaseRequestDetail(APIView):
             Requester=o.Requester,
             DocDate=o.DocDate,
             DocDueDate=o.DocDueDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -230,7 +232,7 @@ class PurchaseRequestDetail(APIView):
         except OPRQ.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
@@ -241,32 +243,24 @@ class PurchaseRequestDetail(APIView):
             Requester=o.Requester,
             DocDate=o.DocDate,
             DocDueDate=o.DocDueDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class PurchaseRequestLineCollection(APIView):
+class PurchaseRequestLineListCreateView(APIView):
     """Purchase request lines (PRQ1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> PurchaseRequestLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> PurchaseRequestLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = PRQ1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -327,7 +321,7 @@ class PurchaseRequestLineCollection(APIView):
         )
 
 
-class PurchaseRequestLineDetail(APIView):
+class PurchaseRequestLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -337,7 +331,7 @@ class PurchaseRequestLineDetail(APIView):
         except PRQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -358,7 +352,7 @@ class PurchaseRequestLineDetail(APIView):
         except PRQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -400,7 +394,7 @@ class PurchaseRequestLineDetail(APIView):
         except PRQ1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -420,25 +414,17 @@ class PurchaseRequestLineDetail(APIView):
         )
 
 
-class PurchaseOrderCollection(APIView):
+class PurchaseOrderListCreateView(APIView):
     """Purchase order header (OPOR): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> PurchaseOrderPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> PurchaseOrderPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OPOR.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -455,6 +441,8 @@ class PurchaseOrderCollection(APIView):
                     DocStatus=o.DocStatus,
                     DocDate=o.DocDate,
                     DocTotal=str(o.DocTotal),
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -474,10 +462,12 @@ class PurchaseOrderCollection(APIView):
             DocStatus=status,
             DocDate=data.DocDate,
             DocTotal=Decimal(str(data.DocTotal or "0")),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(header.CardCode)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(header.CardCode)
         return PurchaseOrderResponse(
             DocEntry=header.DocEntry,
             DocNum=header.DocNum,
@@ -486,11 +476,13 @@ class PurchaseOrderCollection(APIView):
             DocStatus=header.DocStatus,
             DocDate=header.DocDate,
             DocTotal=str(header.DocTotal),
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class PurchaseOrderDetail(APIView):
+class PurchaseOrderDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -500,7 +492,7 @@ class PurchaseOrderDetail(APIView):
         except OPOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return PurchaseOrderResponse(
             DocEntry=o.DocEntry,
@@ -510,6 +502,8 @@ class PurchaseOrderDetail(APIView):
             DocStatus=o.DocStatus,
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -519,7 +513,7 @@ class PurchaseOrderDetail(APIView):
         except OPOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode.strip()
         if data.DocNum is not None:
@@ -537,14 +531,18 @@ class PurchaseOrderDetail(APIView):
             o.DocDate = data.DocDate
         if data.DocTotal is not None:
             o.DocTotal = Decimal(str(data.DocTotal))
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(old_cc, o.CardCode)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
         return PurchaseOrderResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -553,6 +551,8 @@ class PurchaseOrderDetail(APIView):
             DocStatus=o.DocStatus,
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -562,13 +562,13 @@ class PurchaseOrderDetail(APIView):
         except OPOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         old_cc = o.CardCode.strip()
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(old_cc)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
         return PurchaseOrderResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -577,32 +577,24 @@ class PurchaseOrderDetail(APIView):
             DocStatus=o.DocStatus,
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class PurchaseOrderLineCollection(APIView):
+class PurchaseOrderLineListCreateView(APIView):
     """Purchase order lines (POR1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> PurchaseOrderLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> PurchaseOrderLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = POR1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -650,8 +642,8 @@ class PurchaseOrderLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(hdr.CardCode)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(hdr.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -666,7 +658,7 @@ class PurchaseOrderLineCollection(APIView):
         )
 
 
-class PurchaseOrderLineDetail(APIView):
+class PurchaseOrderLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -676,7 +668,7 @@ class PurchaseOrderLineDetail(APIView):
         except POR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -699,7 +691,7 @@ class PurchaseOrderLineDetail(APIView):
         except POR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -725,8 +717,8 @@ class PurchaseOrderLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(o.header.CardCode)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -746,7 +738,7 @@ class PurchaseOrderLineDetail(APIView):
         except POR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -754,8 +746,8 @@ class PurchaseOrderLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _rebuild_inv_totals()
-        await _bp_recalc_cards(o.header.CardCode)
+        await async_rebuild_inventory_totals_after_purchase_document_change()
+        await async_recalculate_business_partner_rollups_for_card_codes(o.header.CardCode)
         return PurchaseOrderLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -770,25 +762,17 @@ class PurchaseOrderLineDetail(APIView):
         )
 
 
-class GoodsReceiptCollection(APIView):
+class GoodsReceiptListCreateView(APIView):
     """GRPO header (OPDN): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> GoodsReceiptPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> GoodsReceiptPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OPDN.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -804,6 +788,8 @@ class GoodsReceiptCollection(APIView):
                     CardName=o.CardName or "",
                     DocDate=o.DocDate,
                     DocStatus=o.DocStatus,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -822,6 +808,8 @@ class GoodsReceiptCollection(APIView):
             CardName=(data.CardName or "").strip(),
             DocDate=data.DocDate,
             DocStatus=status,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
         return GoodsReceiptResponse(
@@ -831,11 +819,13 @@ class GoodsReceiptCollection(APIView):
             CardName=header.CardName or "",
             DocDate=header.DocDate,
             DocStatus=header.DocStatus,
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class GoodsReceiptDetail(APIView):
+class GoodsReceiptDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -845,7 +835,7 @@ class GoodsReceiptDetail(APIView):
         except OPDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return GoodsReceiptResponse(
             DocEntry=o.DocEntry,
@@ -854,6 +844,8 @@ class GoodsReceiptDetail(APIView):
             CardName=o.CardName or "",
             DocDate=o.DocDate,
             DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -863,7 +855,7 @@ class GoodsReceiptDetail(APIView):
         except OPDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -878,13 +870,17 @@ class GoodsReceiptDetail(APIView):
             if st not in ("O", "C"):
                 raise BadRequest(detail="DocStatus must be O or C.")
             o.DocStatus = st
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(resync_all_grpo_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_grpo_lines, int(doc_entry))
         return GoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -892,6 +888,8 @@ class GoodsReceiptDetail(APIView):
             CardName=o.CardName or "",
             DocDate=o.DocDate,
             DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -901,11 +899,11 @@ class GoodsReceiptDetail(APIView):
         except OPDN.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(resync_all_grpo_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_grpo_lines, int(doc_entry))
         return GoodsReceiptResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -913,32 +911,24 @@ class GoodsReceiptDetail(APIView):
             CardName=o.CardName or "",
             DocDate=o.DocDate,
             DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class GoodsReceiptLineCollection(APIView):
+class GoodsReceiptLineListCreateView(APIView):
     """GRPO lines (PDN1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> GoodsReceiptLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> GoodsReceiptLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = PDN1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -986,7 +976,7 @@ class GoodsReceiptLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _purchase_stock_sync(sync_grpo_line_stock, int(line.header_id), int(line.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_grpo_line_stock, int(line.header_id), int(line.LineNum))
         return GoodsReceiptLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1001,7 +991,7 @@ class GoodsReceiptLineCollection(APIView):
         )
 
 
-class GoodsReceiptLineDetail(APIView):
+class GoodsReceiptLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1011,7 +1001,7 @@ class GoodsReceiptLineDetail(APIView):
         except PDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1034,7 +1024,7 @@ class GoodsReceiptLineDetail(APIView):
         except PDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1060,7 +1050,7 @@ class GoodsReceiptLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(sync_grpo_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_grpo_line_stock, int(doc_entry), int(line_num))
         return GoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1080,7 +1070,7 @@ class GoodsReceiptLineDetail(APIView):
         except PDN1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1088,7 +1078,7 @@ class GoodsReceiptLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(sync_grpo_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_grpo_line_stock, int(doc_entry), int(line_num))
         return GoodsReceiptLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1103,25 +1093,17 @@ class GoodsReceiptLineDetail(APIView):
         )
 
 
-class VendorReturnCollection(APIView):
+class VendorReturnListCreateView(APIView):
     """Goods return header (ORPC): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> VendorReturnPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> VendorReturnPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = ORPC.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -1136,6 +1118,8 @@ class VendorReturnCollection(APIView):
                     CardCode=o.CardCode,
                     CardName=o.CardName or "",
                     DocDate=o.DocDate,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1150,6 +1134,8 @@ class VendorReturnCollection(APIView):
             CardCode=data.CardCode.strip(),
             CardName=(data.CardName or "").strip(),
             DocDate=data.DocDate,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
         return VendorReturnResponse(
@@ -1158,11 +1144,13 @@ class VendorReturnCollection(APIView):
             CardCode=header.CardCode,
             CardName=header.CardName or "",
             DocDate=header.DocDate,
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class VendorReturnDetail(APIView):
+class VendorReturnDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1172,7 +1160,7 @@ class VendorReturnDetail(APIView):
         except ORPC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return VendorReturnResponse(
             DocEntry=o.DocEntry,
@@ -1180,6 +1168,8 @@ class VendorReturnDetail(APIView):
             CardCode=o.CardCode,
             CardName=o.CardName or "",
             DocDate=o.DocDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1189,7 +1179,7 @@ class VendorReturnDetail(APIView):
         except ORPC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -1199,6 +1189,10 @@ class VendorReturnDetail(APIView):
             o.CardName = data.CardName.strip()
         if data.DocDate is not None:
             o.DocDate = data.DocDate
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.DocStatus is not None:
             st = (data.DocStatus or "O").strip().upper()[:1] or "O"
             if st not in ("O", "C"):
@@ -1210,13 +1204,15 @@ class VendorReturnDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(resync_all_vendor_return_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_vendor_return_lines, int(doc_entry))
         return VendorReturnResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CardCode=o.CardCode,
             CardName=o.CardName or "",
             DocDate=o.DocDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1226,43 +1222,35 @@ class VendorReturnDetail(APIView):
         except ORPC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(resync_all_vendor_return_lines, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(resync_all_vendor_return_lines, int(doc_entry))
         return VendorReturnResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
             CardCode=o.CardCode,
             CardName=o.CardName or "",
             DocDate=o.DocDate,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class VendorReturnLineCollection(APIView):
+class VendorReturnLineListCreateView(APIView):
     """Goods return lines (RPC1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> VendorReturnLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> VendorReturnLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = RPC1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -1310,7 +1298,7 @@ class VendorReturnLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _purchase_stock_sync(sync_vendor_return_line_stock, int(line.header_id), int(line.LineNum))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_vendor_return_line_stock, int(line.header_id), int(line.LineNum))
         return VendorReturnLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1325,7 +1313,7 @@ class VendorReturnLineCollection(APIView):
         )
 
 
-class VendorReturnLineDetail(APIView):
+class VendorReturnLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1335,7 +1323,7 @@ class VendorReturnLineDetail(APIView):
         except RPC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1358,7 +1346,7 @@ class VendorReturnLineDetail(APIView):
         except RPC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1384,7 +1372,7 @@ class VendorReturnLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
         return VendorReturnLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1404,7 +1392,7 @@ class VendorReturnLineDetail(APIView):
         except RPC1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1412,7 +1400,7 @@ class VendorReturnLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_vendor_return_line_stock, int(doc_entry), int(line_num))
         return VendorReturnLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1427,25 +1415,17 @@ class VendorReturnLineDetail(APIView):
         )
 
 
-class ApInvoiceCollection(APIView):
+class ApInvoiceListCreateView(APIView):
     """A/P invoice header (OPCH): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ApInvoicePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> ApInvoicePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OPCH.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(
@@ -1462,6 +1442,8 @@ class ApInvoiceCollection(APIView):
                     DocDate=o.DocDate,
                     DocTotal=str(o.DocTotal),
                     VatSum=str(o.VatSum),
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -1478,9 +1460,11 @@ class ApInvoiceCollection(APIView):
             DocDate=data.DocDate,
             DocTotal=Decimal(str(data.DocTotal or "0")),
             VatSum=Decimal(str(data.VatSum or "0")),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(header.DocEntry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(header.DocEntry))
         return ApInvoiceResponse(
             DocEntry=header.DocEntry,
             DocNum=header.DocNum,
@@ -1489,11 +1473,13 @@ class ApInvoiceCollection(APIView):
             DocDate=header.DocDate,
             DocTotal=str(header.DocTotal),
             VatSum=str(header.VatSum),
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class ApInvoiceDetail(APIView):
+class ApInvoiceDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1503,7 +1489,7 @@ class ApInvoiceDetail(APIView):
         except OPCH.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return ApInvoiceResponse(
             DocEntry=o.DocEntry,
@@ -1513,6 +1499,8 @@ class ApInvoiceDetail(APIView):
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
             VatSum=str(o.VatSum),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1522,7 +1510,7 @@ class ApInvoiceDetail(APIView):
         except OPCH.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -1536,13 +1524,17 @@ class ApInvoiceDetail(APIView):
             o.DocTotal = Decimal(str(data.DocTotal))
         if data.VatSum is not None:
             o.VatSum = Decimal(str(data.VatSum))
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1551,6 +1543,8 @@ class ApInvoiceDetail(APIView):
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
             VatSum=str(o.VatSum),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -1560,11 +1554,11 @@ class ApInvoiceDetail(APIView):
         except OPCH.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceResponse(
             DocEntry=o.DocEntry,
             DocNum=o.DocNum,
@@ -1573,32 +1567,24 @@ class ApInvoiceDetail(APIView):
             DocDate=o.DocDate,
             DocTotal=str(o.DocTotal),
             VatSum=str(o.VatSum),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class ApInvoiceLineCollection(APIView):
+class ApInvoiceLineListCreateView(APIView):
     """A/P invoice lines (PCH1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ApInvoiceLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> ApInvoiceLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = PCH1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -1644,7 +1630,7 @@ class ApInvoiceLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(line.header_id))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(line.header_id))
         return ApInvoiceLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -1658,7 +1644,7 @@ class ApInvoiceLineCollection(APIView):
         )
 
 
-class ApInvoiceLineDetail(APIView):
+class ApInvoiceLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1668,7 +1654,7 @@ class ApInvoiceLineDetail(APIView):
         except PCH1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1690,7 +1676,7 @@ class ApInvoiceLineDetail(APIView):
         except PCH1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1714,7 +1700,7 @@ class ApInvoiceLineDetail(APIView):
                 raise BadRequest(detail="Canceled must be Y or N.")
             o.Canceled = c
         await o.asave()
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1733,7 +1719,7 @@ class ApInvoiceLineDetail(APIView):
         except PCH1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -1741,7 +1727,7 @@ class ApInvoiceLineDetail(APIView):
             raise BadRequest(detail="Cannot delete lines of a canceled document.")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        await _purchase_stock_sync(sync_ap_invoice_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_ap_invoice_journal, int(doc_entry))
         return ApInvoiceLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1759,113 +1745,113 @@ def attach_purchase_routes(api: BoltAPI) -> None:
     """Register Purchase A/P Bolt routes under ``/api/purchase``."""
     tag = ["purchase"]
     # Human-readable paths (legacy SAP-style paths kept for compatibility).
-    api.view(PURCHASE_API_PREFIX + "/purchase-requests", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestCollection)
+    api.view(PURCHASE_API_PREFIX + "/purchase-requests", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/purchase-requests/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(PurchaseRequestDetail)
-    api.view(PURCHASE_API_PREFIX + "/purchase-request-lines", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestLineCollection)
+    )(PurchaseRequestDetailView)
+    api.view(PURCHASE_API_PREFIX + "/purchase-request-lines", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestLineListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/purchase-request-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(PurchaseRequestLineDetail)
-    api.view(PURCHASE_API_PREFIX + "/purchase-orders", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderCollection)
+    )(PurchaseRequestLineDetailView)
+    api.view(PURCHASE_API_PREFIX + "/purchase-orders", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/purchase-orders/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(PurchaseOrderDetail)
-    api.view(PURCHASE_API_PREFIX + "/purchase-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderLineCollection)
+    )(PurchaseOrderDetailView)
+    api.view(PURCHASE_API_PREFIX + "/purchase-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderLineListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/purchase-order-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(PurchaseOrderLineDetail)
-    api.view(PURCHASE_API_PREFIX + "/goods-receipts", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptCollection)
+    )(PurchaseOrderLineDetailView)
+    api.view(PURCHASE_API_PREFIX + "/goods-receipts", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/goods-receipts/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(GoodsReceiptDetail)
-    api.view(PURCHASE_API_PREFIX + "/goods-receipt-lines", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptLineCollection)
+    )(GoodsReceiptDetailView)
+    api.view(PURCHASE_API_PREFIX + "/goods-receipt-lines", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptLineListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/goods-receipt-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(GoodsReceiptLineDetail)
-    api.view(PURCHASE_API_PREFIX + "/vendor-returns", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnCollection)
+    )(GoodsReceiptLineDetailView)
+    api.view(PURCHASE_API_PREFIX + "/vendor-returns", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/vendor-returns/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(VendorReturnDetail)
-    api.view(PURCHASE_API_PREFIX + "/vendor-return-lines", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnLineCollection)
+    )(VendorReturnDetailView)
+    api.view(PURCHASE_API_PREFIX + "/vendor-return-lines", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnLineListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/vendor-return-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(VendorReturnLineDetail)
-    api.view(PURCHASE_API_PREFIX + "/ap-invoices", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceCollection)
+    )(VendorReturnLineDetailView)
+    api.view(PURCHASE_API_PREFIX + "/ap-invoices", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/ap-invoices/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ApInvoiceDetail)
-    api.view(PURCHASE_API_PREFIX + "/ap-invoice-lines", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceLineCollection)
+    )(ApInvoiceDetailView)
+    api.view(PURCHASE_API_PREFIX + "/ap-invoice-lines", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceLineListCreateView)
     api.view(
         PURCHASE_API_PREFIX + "/ap-invoice-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ApInvoiceLineDetail)
-    api.view(PURCHASE_API_PREFIX + "/oprq", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestCollection)
+    )(ApInvoiceLineDetailView)
+    api.view(PURCHASE_API_PREFIX + "/oprq", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestListCreateView)
     api.view(PURCHASE_API_PREFIX + "/oprq/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        PurchaseRequestDetail
+        PurchaseRequestDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/prq1", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestLineCollection)
+    api.view(PURCHASE_API_PREFIX + "/prq1", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseRequestLineListCreateView)
     api.view(PURCHASE_API_PREFIX + "/prq1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        PurchaseRequestLineDetail
+        PurchaseRequestLineDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/opor", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderCollection)
+    api.view(PURCHASE_API_PREFIX + "/opor", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderListCreateView)
     api.view(PURCHASE_API_PREFIX + "/opor/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        PurchaseOrderDetail
+        PurchaseOrderDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/por1", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderLineCollection)
+    api.view(PURCHASE_API_PREFIX + "/por1", methods=["GET", "POST"], status_code=200, tags=tag)(PurchaseOrderLineListCreateView)
     api.view(PURCHASE_API_PREFIX + "/por1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        PurchaseOrderLineDetail
+        PurchaseOrderLineDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/opdn", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptCollection)
+    api.view(PURCHASE_API_PREFIX + "/opdn", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptListCreateView)
     api.view(PURCHASE_API_PREFIX + "/opdn/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        GoodsReceiptDetail
+        GoodsReceiptDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/pdn1", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptLineCollection)
+    api.view(PURCHASE_API_PREFIX + "/pdn1", methods=["GET", "POST"], status_code=200, tags=tag)(GoodsReceiptLineListCreateView)
     api.view(PURCHASE_API_PREFIX + "/pdn1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        GoodsReceiptLineDetail
+        GoodsReceiptLineDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/orpc", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnCollection)
+    api.view(PURCHASE_API_PREFIX + "/orpc", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnListCreateView)
     api.view(PURCHASE_API_PREFIX + "/orpc/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        VendorReturnDetail
+        VendorReturnDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/rpc1", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnLineCollection)
+    api.view(PURCHASE_API_PREFIX + "/rpc1", methods=["GET", "POST"], status_code=200, tags=tag)(VendorReturnLineListCreateView)
     api.view(PURCHASE_API_PREFIX + "/rpc1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        VendorReturnLineDetail
+        VendorReturnLineDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/opch", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceCollection)
+    api.view(PURCHASE_API_PREFIX + "/opch", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceListCreateView)
     api.view(PURCHASE_API_PREFIX + "/opch/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ApInvoiceDetail
+        ApInvoiceDetailView
     )
-    api.view(PURCHASE_API_PREFIX + "/pch1", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceLineCollection)
+    api.view(PURCHASE_API_PREFIX + "/pch1", methods=["GET", "POST"], status_code=200, tags=tag)(ApInvoiceLineListCreateView)
     api.view(PURCHASE_API_PREFIX + "/pch1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ApInvoiceLineDetail
+        ApInvoiceLineDetailView
     )

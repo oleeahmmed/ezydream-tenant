@@ -32,6 +32,8 @@ const HEADER_OWOR: HeaderField[] = [
   { key: "CmpltQty", label: "Completed Qty", kind: "text" },
   { key: "PostDate", label: "Posting Date", kind: "date" },
   { key: "WhsCode", label: "Whse", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -39,6 +41,8 @@ const HEADER_BOM: HeaderField[] = [
   { key: "Code", label: "BOM Code", kind: "text", pk: true },
   { key: "TreeType", label: "Tree Type", kind: "text" },
   { key: "Quantity", label: "Quantity", kind: "text" },
+  { key: "U_UserFld1", label: "User-defined field 1", kind: "text" },
+  { key: "U_UserFld2", label: "User-defined field 2", kind: "text" },
   { key: "Canceled", label: "Canceled", kind: "text", readonly: true },
 ];
 
@@ -65,12 +69,13 @@ export const PRODUCTION_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["DocEntry"],
     listColumns: LIST_OWOR,
     headerFields: HEADER_OWOR,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     partnerPickerFieldKey: null,
     footerLeftKeys: [],
     footerTotalsKeys: [],
     showDocCurHint: false,
-    createKeys: ["DocNum", "ItemCode", "Status", "PlannedQty", "CmpltQty", "PostDate", "WhsCode"],
-    patchKeys: ["DocNum", "ItemCode", "Status", "PlannedQty", "CmpltQty", "PostDate", "WhsCode", "Canceled"],
+    createKeys: ["DocNum", "ItemCode", "Status", "PlannedQty", "CmpltQty", "PostDate", "WhsCode", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["DocNum", "ItemCode", "Status", "PlannedQty", "CmpltQty", "PostDate", "WhsCode", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (de) => `${API}/production-order-lines?doc_entry=${de}&limit=200&offset=0`,
       detailPath: (de, ln) => `${API}/production-order-lines/${de}/${ln}`,
@@ -87,12 +92,13 @@ export const PRODUCTION_REGISTRY: DocumentRegistryEntry[] = [
     pkKeys: ["Code"],
     listColumns: LIST_BOM,
     headerFields: HEADER_BOM,
+    rightSidebarFieldKeys: ["U_UserFld1", "U_UserFld2"],
     partnerPickerFieldKey: null,
     footerLeftKeys: [],
     footerTotalsKeys: [],
     showDocCurHint: false,
-    createKeys: ["Code", "TreeType", "Quantity"],
-    patchKeys: ["TreeType", "Quantity", "Canceled"],
+    createKeys: ["Code", "TreeType", "Quantity", "U_UserFld1", "U_UserFld2"],
+    patchKeys: ["TreeType", "Quantity", "U_UserFld1", "U_UserFld2", "Canceled"],
     lines: {
       listPath: (code) => `${API}/bom-lines?father=${encodeURIComponent(String(code))}&limit=200&offset=0`,
       detailPath: (code, ln) => `${API}/bom-lines/${encodeURIComponent(String(code))}/${ln}`,

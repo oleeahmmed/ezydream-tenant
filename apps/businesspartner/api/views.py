@@ -1,13 +1,14 @@
 """
-Business partner Bolt API — BP গ্রুপ, মাস্টার, ঠিকানা।
+Business partner Bolt API — BP groups (OCRG), master (OCRD), addresses (CRD1).
 
-``django_bolt_guide.md``: ``APIView``, ``BadRequest`` / ``NotFound``। সিরিয়ালাইজার: ``serializers.py``।
+Each handler is written for beginners: read query/body, validate, hit the database,
+then return a typed ``*Response`` object built in this same module (no separate
+response-builder package).
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 from urllib.parse import unquote
 
 from asgiref.sync import sync_to_async
@@ -16,9 +17,15 @@ from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
 from apps.businesspartner.models import CRD1, OCRD, OCRG
+from apps.core.beginner_style import (
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+    require_yes_no_string_for_bolt,
+)
 from apps.warehouse.models import OWHS
 
 from .serializers import (
@@ -40,136 +47,139 @@ from .serializers import (
 BUSINESSPARTNER_API_PREFIX = "/api/business-partners"
 
 
-def _include_deleted(request: Any) -> bool:
-    qd = getattr(request, "query", None) or {}
-    return (qd.get("include_deleted") or "").strip().lower() in ("1", "true", "yes")
-
-
-def _partner_response(o: OCRD) -> BusinessPartnerResponse:
+def business_partner_row_to_bolt_response(row: OCRD) -> BusinessPartnerResponse:
+    """Turn one ``OCRD`` database row into the JSON shape the frontend expects."""
     return BusinessPartnerResponse(
-        CardCode=o.CardCode,
-        CardName=o.CardName,
-        CardType=o.CardType,
-        GroupCode=o.GroupCode_id,
-        CardFName=o.CardFName or "",
-        CntctPrsn=o.CntctPrsn or "",
-        Phone1=o.Phone1 or "",
-        Phone2=o.Phone2 or "",
-        Fax=o.Fax or "",
-        Cellular=o.Cellular or "",
-        E_Mail=o.E_Mail or "",
-        Website=o.Website or "",
-        LicTradNum=o.LicTradNum or "",
-        CreditLine=str(o.CreditLine),
-        DebtLine=str(o.DebtLine),
-        Balance=str(o.Balance),
-        OrdersBal=str(o.OrdersBal),
-        DNotesBal=str(o.DNotesBal),
-        Currency=o.Currency or "",
-        PayTermsGrpCode=o.PayTermsGrpCode,
-        DfltWhs=o.DfltWhs or "",
-        ShipToDef=o.ShipToDef or "",
-        BillToDef=o.BillToDef or "",
-        SlpCode=o.SlpCode,
-        Comments=o.Comments or "",
-        ValidFor=o.ValidFor,
-        Frozen=o.Frozen,
-        Canceled=o.Canceled,
+        CardCode=row.CardCode,
+        CardName=row.CardName,
+        CardType=row.CardType,
+        GroupCode=row.GroupCode_id,
+        CardFName=row.CardFName or "",
+        CntctPrsn=row.CntctPrsn or "",
+        Phone1=row.Phone1 or "",
+        Phone2=row.Phone2 or "",
+        Fax=row.Fax or "",
+        Cellular=row.Cellular or "",
+        E_Mail=row.E_Mail or "",
+        Website=row.Website or "",
+        LicTradNum=row.LicTradNum or "",
+        CreditLine=str(row.CreditLine),
+        DebtLine=str(row.DebtLine),
+        Balance=str(row.Balance),
+        OrdersBal=str(row.OrdersBal),
+        DNotesBal=str(row.DNotesBal),
+        Currency=row.Currency or "",
+        PayTermsGrpCode=row.PayTermsGrpCode,
+        DfltWhs=row.DfltWhs or "",
+        ShipToDef=row.ShipToDef or "",
+        BillToDef=row.BillToDef or "",
+        SlpCode=row.SlpCode,
+        Comments=row.Comments or "",
+        ValidFor=row.ValidFor,
+        Frozen=row.Frozen,
+        Canceled=row.Canceled,
     )
 
 
-def _address_response(o: CRD1) -> BPAddressResponse:
+def bp_address_row_to_bolt_response(row: CRD1) -> BPAddressResponse:
+    """Turn one ``CRD1`` address row into the Bolt response type."""
     return BPAddressResponse(
-        CardCode=o.header_id,
-        Address=o.Address,
-        Street=o.Street or "",
-        Block=o.Block or "",
-        City=o.City or "",
-        County=o.County or "",
-        ZipCode=o.ZipCode or "",
-        Country=o.Country or "",
-        State=o.State or "",
-        Building=o.Building or "",
-        AdresType=o.AdresType,
-        Canceled=o.Canceled,
+        CardCode=row.header_id,
+        Address=row.Address,
+        Street=row.Street or "",
+        Block=row.Block or "",
+        City=row.City or "",
+        County=row.County or "",
+        ZipCode=row.ZipCode or "",
+        Country=row.Country or "",
+        State=row.State or "",
+        Building=row.Building or "",
+        AdresType=row.AdresType,
+        Canceled=row.Canceled,
     )
 
 
-def _yn(value: str | None, field: str) -> str:
-    if value is None:
-        raise BadRequest(detail=f"{field} is required.")
-    c = (value or "N").strip().upper()[:1] or "N"
-    if c not in ("Y", "N"):
-        raise BadRequest(detail=f"{field} must be Y or N.")
-    return c
-
-
-class BPGroupCollection(APIView):
-    """BP groups (OCRG): list or create."""
+class BPGroupListCreateView(APIView):
+    """BP groups (OCRG): list (GET) or create (POST)."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BPGroupPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> BPGroupPage:
+        # STEP 1 — read pagination + optional search text from the query string.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
+        # STEP 2 — base queryset, optionally hide soft-deleted rows.
         qs = OCRG.objects.all().order_by("GroupCode")
-        if not _include_deleted(self.request):
+        if not show_deleted:
             qs = qs.filter(Canceled="N")
+        # STEP 3 — optional name/code prefix filter.
         if search_prefix:
             cond = Q(GroupName__istartswith=search_prefix)
             if search_prefix.isdigit():
                 cond |= Q(GroupCode=int(search_prefix))
             qs = qs.filter(cond)
+        # STEP 4 — slice page and build the response list.
         rows = await sync_to_async(list)(qs[offset : offset + limit])
-        return BPGroupPage(
-            items=[
-                BPGroupResponse(GroupCode=o.GroupCode, GroupName=o.GroupName, GroupType=o.GroupType, Canceled=o.Canceled)
-                for o in rows
-            ],
-            limit=limit,
-            offset=offset,
-        )
+        items = [
+            BPGroupResponse(
+                GroupCode=o.GroupCode,
+                GroupName=o.GroupName,
+                GroupType=o.GroupType,
+                Canceled=o.Canceled,
+            )
+            for o in rows
+        ]
+        return BPGroupPage(items=items, limit=limit, offset=offset)
 
     async def post(self, data: BPGroupCreateBody) -> BPGroupResponse:
+        # STEP 1 — validate group type flag.
         gt = (data.GroupType or "B").strip().upper()[:1] or "B"
         if gt not in ("C", "S", "B"):
             raise BadRequest(detail="GroupType must be C, S, or B.")
+        # STEP 2 — create row and save.
         o = OCRG(GroupCode=int(data.GroupCode), GroupName=data.GroupName.strip(), GroupType=gt)
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate GroupCode.")
-        return BPGroupResponse(GroupCode=o.GroupCode, GroupName=o.GroupName, GroupType=o.GroupType, Canceled=o.Canceled)
+        # STEP 3 — return the created row as JSON.
+        return BPGroupResponse(
+            GroupCode=o.GroupCode,
+            GroupName=o.GroupName,
+            GroupType=o.GroupType,
+            Canceled=o.Canceled,
+        )
 
 
-class BPGroupDetail(APIView):
+class BPGroupDetailView(APIView):
+    """Single BP group: read, patch, or soft-delete."""
+
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, group_code: int) -> BPGroupResponse:
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRG.objects.aget(pk=int(group_code))
         except OCRG.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return BPGroupResponse(GroupCode=o.GroupCode, GroupName=o.GroupName, GroupType=o.GroupType, Canceled=o.Canceled)
+        return BPGroupResponse(
+            GroupCode=o.GroupCode,
+            GroupName=o.GroupName,
+            GroupType=o.GroupType,
+            Canceled=o.Canceled,
+        )
 
     async def patch(self, group_code: int, data: BPGroupPatchBody) -> BPGroupResponse:
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRG.objects.aget(pk=int(group_code))
         except OCRG.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.GroupName is not None:
             o.GroupName = data.GroupName.strip()
@@ -179,41 +189,44 @@ class BPGroupDetail(APIView):
                 raise BadRequest(detail="GroupType must be C, S, or B.")
             o.GroupType = gt
         if data.Canceled is not None:
-            o.Canceled = _yn(data.Canceled, "Canceled")
+            o.Canceled = require_yes_no_string_for_bolt("Canceled", data.Canceled)
         await o.asave()
-        return BPGroupResponse(GroupCode=o.GroupCode, GroupName=o.GroupName, GroupType=o.GroupType, Canceled=o.Canceled)
+        return BPGroupResponse(
+            GroupCode=o.GroupCode,
+            GroupName=o.GroupName,
+            GroupType=o.GroupType,
+            Canceled=o.Canceled,
+        )
 
     async def delete(self, group_code: int) -> BPGroupResponse:
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRG.objects.aget(pk=int(group_code))
         except OCRG.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return BPGroupResponse(GroupCode=o.GroupCode, GroupName=o.GroupName, GroupType=o.GroupType, Canceled=o.Canceled)
+        return BPGroupResponse(
+            GroupCode=o.GroupCode,
+            GroupName=o.GroupName,
+            GroupType=o.GroupType,
+            Canceled=o.Canceled,
+        )
 
 
-class BusinessPartnerCollection(APIView):
+class BusinessPartnerListCreateView(APIView):
     """Business partners (OCRD): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BusinessPartnerPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> BusinessPartnerPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         qs = OCRD.objects.select_related("GroupCode").all().order_by("CardCode")
-        if not _include_deleted(self.request):
+        if not show_deleted:
             qs = qs.filter(Canceled="N")
         if search_prefix:
             qs = qs.filter(
@@ -224,7 +237,11 @@ class BusinessPartnerCollection(APIView):
                 | Q(LicTradNum__istartswith=search_prefix)
             )
         rows = await sync_to_async(list)(qs[offset : offset + limit])
-        return BusinessPartnerPage(items=[_partner_response(o) for o in rows], limit=limit, offset=offset)
+        return BusinessPartnerPage(
+            items=[business_partner_row_to_bolt_response(o) for o in rows],
+            limit=limit,
+            offset=offset,
+        )
 
     async def post(self, data: BusinessPartnerCreateBody) -> BusinessPartnerResponse:
         cc = data.CardCode.strip()
@@ -265,37 +282,39 @@ class BusinessPartnerCollection(APIView):
             BillToDef=(data.BillToDef or "").strip()[:50],
             SlpCode=data.SlpCode,
             Comments=(data.Comments or "").strip(),
-            ValidFor=_yn(data.ValidFor, "ValidFor"),
-            Frozen=_yn(data.Frozen, "Frozen"),
+            ValidFor=require_yes_no_string_for_bolt("ValidFor", data.ValidFor),
+            Frozen=require_yes_no_string_for_bolt("Frozen", data.Frozen),
         )
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate CardCode.")
-        return _partner_response(o)
+        return business_partner_row_to_bolt_response(o)
 
 
-class BusinessPartnerDetail(APIView):
+class BusinessPartnerDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, card_code: str) -> BusinessPartnerResponse:
         pk = card_code.strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRD.objects.select_related("GroupCode").aget(pk=pk)
         except OCRD.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _partner_response(o)
+        return business_partner_row_to_bolt_response(o)
 
     async def patch(self, card_code: str, data: BusinessPartnerPatchBody) -> BusinessPartnerResponse:
         pk = card_code.strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRD.objects.select_related("GroupCode").aget(pk=pk)
         except OCRD.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.CardName is not None:
             o.CardName = data.CardName.strip()
@@ -354,28 +373,29 @@ class BusinessPartnerDetail(APIView):
         if data.Comments is not None:
             o.Comments = data.Comments.strip()
         if data.ValidFor is not None:
-            o.ValidFor = _yn(data.ValidFor, "ValidFor")
+            o.ValidFor = require_yes_no_string_for_bolt("ValidFor", data.ValidFor)
         if data.Frozen is not None:
-            o.Frozen = _yn(data.Frozen, "Frozen")
+            o.Frozen = require_yes_no_string_for_bolt("Frozen", data.Frozen)
         if data.Canceled is not None:
-            o.Canceled = _yn(data.Canceled, "Canceled")
+            o.Canceled = require_yes_no_string_for_bolt("Canceled", data.Canceled)
         await o.asave()
-        return _partner_response(o)
+        return business_partner_row_to_bolt_response(o)
 
     async def delete(self, card_code: str) -> BusinessPartnerResponse:
         pk = card_code.strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await OCRD.objects.select_related("GroupCode").aget(pk=pk)
         except OCRD.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return _partner_response(o)
+        return business_partner_row_to_bolt_response(o)
 
 
-class BPAddressCollection(APIView):
+class BPAddressListCreateView(APIView):
     """BP addresses (CRD1) for one CardCode."""
 
     auth = [JWTAuthentication()]
@@ -385,28 +405,26 @@ class BPAddressCollection(APIView):
         pk = card_code.strip()
         if not await OCRD.objects.filter(pk=pk).aexists():
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
+        limit, offset, _search_unused = get_list_pagination_for_request(self.request)
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         qs = CRD1.objects.filter(header_id=pk).order_by("Address")
-        if not _include_deleted(self.request):
+        if not show_deleted:
             qs = qs.filter(Canceled="N")
         rows = await sync_to_async(list)(qs[offset : offset + limit])
-        return BPAddressPage(items=[_address_response(o) for o in rows], limit=limit, offset=offset)
+        return BPAddressPage(
+            items=[bp_address_row_to_bolt_response(o) for o in rows],
+            limit=limit,
+            offset=offset,
+        )
 
     async def post(self, card_code: str, data: BPAddressCreateBody) -> BPAddressResponse:
         pk = card_code.strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             header = await OCRD.objects.aget(pk=pk)
         except OCRD.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and header.Canceled == "Y":
+        if not show_deleted and header.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         addr = data.Address.strip()
         if not addr:
@@ -426,38 +444,40 @@ class BPAddressCollection(APIView):
             State=(data.State or "").strip()[:3],
             Building=(data.Building or "").strip()[:100],
             AdresType=at,
-            Canceled=_yn(data.Canceled, "Canceled"),
+            Canceled=require_yes_no_string_for_bolt("Canceled", data.Canceled),
         )
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate Address for this CardCode.")
-        return _address_response(o)
+        return bp_address_row_to_bolt_response(o)
 
 
-class BPAddressDetail(APIView):
+class BPAddressDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, card_code: str, address: str) -> BPAddressResponse:
         pk = card_code.strip()
         aid = unquote(address).strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await CRD1.objects.select_related("header").aget(header_id=pk, Address=aid)
         except CRD1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return _address_response(o)
+        return bp_address_row_to_bolt_response(o)
 
     async def patch(self, card_code: str, address: str, data: BPAddressPatchBody) -> BPAddressResponse:
         pk = card_code.strip()
         aid = unquote(address).strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await CRD1.objects.select_related("header").aget(header_id=pk, Address=aid)
         except CRD1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.Street is not None:
             o.Street = data.Street.strip()[:100]
@@ -481,22 +501,23 @@ class BPAddressDetail(APIView):
                 raise BadRequest(detail="AdresType must be B or S.")
             o.AdresType = at
         if data.Canceled is not None:
-            o.Canceled = _yn(data.Canceled, "Canceled")
+            o.Canceled = require_yes_no_string_for_bolt("Canceled", data.Canceled)
         await o.asave()
-        return _address_response(o)
+        return bp_address_row_to_bolt_response(o)
 
     async def delete(self, card_code: str, address: str) -> BPAddressResponse:
         pk = card_code.strip()
         aid = unquote(address).strip()
+        show_deleted = get_boolean_query_flag_is_true(self.request, "include_deleted")
         try:
             o = await CRD1.objects.select_related("header").aget(header_id=pk, Address=aid)
         except CRD1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        if not _include_deleted(self.request) and o.Canceled == "Y":
+        if not show_deleted and o.Canceled == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
-        return _address_response(o)
+        return bp_address_row_to_bolt_response(o)
 
 
 def attach_businesspartner_routes(api: BoltAPI) -> None:
@@ -505,25 +526,25 @@ def attach_businesspartner_routes(api: BoltAPI) -> None:
     tag = ["business-partners"]
     p = BUSINESSPARTNER_API_PREFIX
     # Literal ``groups`` / ``ocrg`` before ``{card_code}`` to avoid shadowing.
-    api.view(p + "/groups", methods=["GET", "POST"], status_code=200, tags=tag)(BPGroupCollection)
-    api.view(p + "/groups/{group_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BPGroupDetail)
-    api.view(p + "/ocrg", methods=["GET", "POST"], status_code=200, tags=tag)(BPGroupCollection)
-    api.view(p + "/ocrg/{group_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BPGroupDetail)
-    api.view(p, methods=["GET", "POST"], status_code=200, tags=tag)(BusinessPartnerCollection)
-    api.view(p + "/ocrd", methods=["GET", "POST"], status_code=200, tags=tag)(BusinessPartnerCollection)
-    api.view(p + "/{card_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BusinessPartnerDetail)
-    api.view(p + "/ocrd/{card_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BusinessPartnerDetail)
-    api.view(p + "/{card_code}/addresses", methods=["GET", "POST"], status_code=200, tags=tag)(BPAddressCollection)
-    api.view(p + "/ocrd/{card_code}/addresses", methods=["GET", "POST"], status_code=200, tags=tag)(BPAddressCollection)
+    api.view(p + "/groups", methods=["GET", "POST"], status_code=200, tags=tag)(BPGroupListCreateView)
+    api.view(p + "/groups/{group_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BPGroupDetailView)
+    api.view(p + "/ocrg", methods=["GET", "POST"], status_code=200, tags=tag)(BPGroupListCreateView)
+    api.view(p + "/ocrg/{group_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BPGroupDetailView)
+    api.view(p, methods=["GET", "POST"], status_code=200, tags=tag)(BusinessPartnerListCreateView)
+    api.view(p + "/ocrd", methods=["GET", "POST"], status_code=200, tags=tag)(BusinessPartnerListCreateView)
+    api.view(p + "/{card_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BusinessPartnerDetailView)
+    api.view(p + "/ocrd/{card_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BusinessPartnerDetailView)
+    api.view(p + "/{card_code}/addresses", methods=["GET", "POST"], status_code=200, tags=tag)(BPAddressListCreateView)
+    api.view(p + "/ocrd/{card_code}/addresses", methods=["GET", "POST"], status_code=200, tags=tag)(BPAddressListCreateView)
     api.view(
         p + "/{card_code}/addresses/{address}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(BPAddressDetail)
+    )(BPAddressDetailView)
     api.view(
         p + "/ocrd/{card_code}/addresses/{address}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(BPAddressDetail)
+    )(BPAddressDetailView)

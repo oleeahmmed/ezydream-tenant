@@ -53,4 +53,11 @@ export type DocumentRegistryEntry = {
   footerTotalsKeys?: string[];
   /** Show currency hint next to totals when ``DocCur`` is present. */
   showDocCurHint?: boolean;
+  /**
+   * Header fields (by key) shown in the right column as tall inputs (e.g. ``Comments``, ``JrnlMemo``).
+   * Max 2 keys. Removed from the main header grid. Omit to hide the right column (no placeholder UDFs).
+   */
+  rightSidebarFieldKeys?: string[];
+  /** Hide the fake Item/Service + Summary toolbars above the line grid (inventory documents). */
+  hideContentsToolbar?: boolean;
 };

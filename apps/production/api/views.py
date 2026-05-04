@@ -15,7 +15,14 @@ from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
+
+from apps.core.beginner_style import (
+    get_boolean_query_flag_is_true,
+    get_list_pagination_for_request,
+    get_optional_int_from_query,
+)
 
 from apps.production.models import ITT1, OITT, OWOR, WOR1
 
@@ -42,25 +49,17 @@ from .serializers import (
 PRODUCTION_API_PREFIX = "/api/production"
 
 
-class BomHeaderCollection(APIView):
+class BomHeaderListCreateView(APIView):
     """BOM header (OITT): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BomHeaderPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> BomHeaderPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OITT.objects.all().order_by("Code")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(Code__istartswith=search_prefix)
@@ -71,6 +70,8 @@ class BomHeaderCollection(APIView):
                     Code=o.Code,
                     TreeType=o.TreeType,
                     Quantity=str(o.Quantity),
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -87,6 +88,8 @@ class BomHeaderCollection(APIView):
             Code=data.Code.strip(),
             TreeType=tt,
             Quantity=Decimal(str(data.Quantity or "1")),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         try:
             await header.asave()
@@ -96,11 +99,13 @@ class BomHeaderCollection(APIView):
             Code=header.Code,
             TreeType=header.TreeType,
             Quantity=str(header.Quantity),
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class BomHeaderDetail(APIView):
+class BomHeaderDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -110,12 +115,14 @@ class BomHeaderDetail(APIView):
         except OITT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return BomHeaderResponse(
             Code=o.Code,
             TreeType=o.TreeType,
             Quantity=str(o.Quantity),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -125,7 +132,7 @@ class BomHeaderDetail(APIView):
         except OITT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.TreeType is not None:
             tt = (data.TreeType or "P").strip().upper()[:1] or "P"
@@ -134,6 +141,10 @@ class BomHeaderDetail(APIView):
             o.TreeType = tt
         if data.Quantity is not None:
             o.Quantity = Decimal(str(data.Quantity))
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -144,6 +155,8 @@ class BomHeaderDetail(APIView):
             Code=o.Code,
             TreeType=o.TreeType,
             Quantity=str(o.Quantity),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -153,7 +166,7 @@ class BomHeaderDetail(APIView):
         except OITT.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
@@ -161,31 +174,25 @@ class BomHeaderDetail(APIView):
             Code=o.Code,
             TreeType=o.TreeType,
             Quantity=str(o.Quantity),
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class BomLineCollection(APIView):
+class BomLineListCreateView(APIView):
     """BOM lines (ITT1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BomLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> BomLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd_f = getattr(self.request, "query", None) or {}
         father = (qd_f.get("father") or "").strip() or None
         queryset = ITT1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if father is not None:
             queryset = queryset.filter(header_id=father.strip())
@@ -237,7 +244,7 @@ class BomLineCollection(APIView):
         )
 
 
-class BomLineDetail(APIView):
+class BomLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -247,7 +254,7 @@ class BomLineDetail(APIView):
         except ITT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -266,7 +273,7 @@ class BomLineDetail(APIView):
         except ITT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -299,7 +306,7 @@ class BomLineDetail(APIView):
         except ITT1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -317,25 +324,17 @@ class BomLineDetail(APIView):
         )
 
 
-class ProductionOrderCollection(APIView):
+class ProductionOrderListCreateView(APIView):
     """Production order header (OWOR): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ProductionOrderPage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
+    async def get(self, request: Request) -> ProductionOrderPage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         queryset = OWOR.objects.all().order_by("-DocEntry")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N")
         if search_prefix:
             queryset = queryset.filter(ItemCode__istartswith=search_prefix)
@@ -351,6 +350,8 @@ class ProductionOrderCollection(APIView):
                     CmpltQty=str(o.CmpltQty),
                     PostDate=o.PostDate,
                     WhsCode=o.WhsCode,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                     Canceled=o.Canceled,
                 )
                 for o in rows
@@ -371,6 +372,8 @@ class ProductionOrderCollection(APIView):
             CmpltQty=Decimal(str(data.CmpltQty or "0")),
             PostDate=data.PostDate,
             WhsCode=data.WhsCode.strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await header.asave()
         return ProductionOrderResponse(
@@ -382,11 +385,13 @@ class ProductionOrderCollection(APIView):
             CmpltQty=str(header.CmpltQty),
             PostDate=header.PostDate,
             WhsCode=header.WhsCode,
+            U_UserFld1=header.U_UserFld1 or "",
+            U_UserFld2=header.U_UserFld2 or "",
             Canceled=header.Canceled,
         )
 
 
-class ProductionOrderDetail(APIView):
+class ProductionOrderDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -396,7 +401,7 @@ class ProductionOrderDetail(APIView):
         except OWOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         return ProductionOrderResponse(
             DocEntry=o.DocEntry,
@@ -407,6 +412,8 @@ class ProductionOrderDetail(APIView):
             CmpltQty=str(o.CmpltQty),
             PostDate=o.PostDate,
             WhsCode=o.WhsCode,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -416,7 +423,7 @@ class ProductionOrderDetail(APIView):
         except OWOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         if data.DocNum is not None:
             o.DocNum = data.DocNum
@@ -435,6 +442,10 @@ class ProductionOrderDetail(APIView):
             o.PostDate = data.PostDate
         if data.WhsCode is not None:
             o.WhsCode = data.WhsCode.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.Canceled is not None:
             c = (data.Canceled or "N").strip().upper()[:1] or "N"
             if c not in ("Y", "N"):
@@ -450,6 +461,8 @@ class ProductionOrderDetail(APIView):
             CmpltQty=str(o.CmpltQty),
             PostDate=o.PostDate,
             WhsCode=o.WhsCode,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
@@ -459,7 +472,7 @@ class ProductionOrderDetail(APIView):
         except OWOR.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and getattr(o, "Canceled", "N") == "Y":
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and getattr(o, "Canceled", "N") == "Y":
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         o.Canceled = "Y"
         await o.asave(update_fields=["Canceled"])
@@ -472,32 +485,24 @@ class ProductionOrderDetail(APIView):
             CmpltQty=str(o.CmpltQty),
             PostDate=o.PostDate,
             WhsCode=o.WhsCode,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
             Canceled=o.Canceled,
         )
 
 
-class ProductionOrderLineCollection(APIView):
+class ProductionOrderLineListCreateView(APIView):
     """Production order lines (WOR1): list or create."""
 
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ProductionOrderLinePage:
-        qd = getattr(self.request, "query", None) or {}
-        try:
-            limit = min(100, max(1, int(qd.get("limit", "50"))))
-        except ValueError:
-            limit = 50
-        try:
-            offset = max(0, int(qd.get("offset", "0")))
-        except ValueError:
-            offset = 0
-        search_prefix = (qd.get("q") or "").strip()
-        qd2 = getattr(self.request, "query", None) or {}
-        raw_de = (qd2.get("doc_entry") or "").strip()
-        doc_entry = int(raw_de) if raw_de else None
+    async def get(self, request: Request) -> ProductionOrderLinePage:
+        # STEP 1 — Bolt list parameters: ``limit``, ``offset``, optional ``q`` prefix.
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
+        doc_entry = get_optional_int_from_query(self.request, "doc_entry")
         queryset = WOR1.objects.all().order_by("header_id", "LineNum")
-        if (getattr(self.request, "query", None) or {}).get("include_deleted", "").strip().lower() not in ("1", "true", "yes"):
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted"):
             queryset = queryset.filter(Canceled="N", header__Canceled="N")
         if doc_entry is not None:
             queryset = queryset.filter(header_id=doc_entry)
@@ -550,7 +555,7 @@ class ProductionOrderLineCollection(APIView):
         )
 
 
-class ProductionOrderLineDetail(APIView):
+class ProductionOrderLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -560,7 +565,7 @@ class ProductionOrderLineDetail(APIView):
         except WOR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -580,7 +585,7 @@ class ProductionOrderLineDetail(APIView):
         except WOR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -616,7 +621,7 @@ class ProductionOrderLineDetail(APIView):
         except WOR1.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
         qd = getattr(self.request, "query", None) or {}
-        if (qd.get("include_deleted") or "").strip().lower() not in ("1", "true", "yes") and (
+        if not get_boolean_query_flag_is_true(self.request, "include_deleted") and (
             getattr(o, "Canceled", "N") == "Y" or getattr(o.header, "Canceled", "N") == "Y"
         ):
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
@@ -639,44 +644,44 @@ def attach_production_routes(api: BoltAPI) -> None:
     """Register Production Bolt routes under ``/api/production``."""
     tag = ["production"]
     # Human-readable paths (legacy SAP table names kept for compatibility).
-    api.view(PRODUCTION_API_PREFIX + "/bom-headers", methods=["GET", "POST"], status_code=200, tags=tag)(BomHeaderCollection)
+    api.view(PRODUCTION_API_PREFIX + "/bom-headers", methods=["GET", "POST"], status_code=200, tags=tag)(BomHeaderListCreateView)
     api.view(PRODUCTION_API_PREFIX + "/bom-headers/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        BomHeaderDetail
+        BomHeaderDetailView
     )
-    api.view(PRODUCTION_API_PREFIX + "/bom-lines", methods=["GET", "POST"], status_code=200, tags=tag)(BomLineCollection)
+    api.view(PRODUCTION_API_PREFIX + "/bom-lines", methods=["GET", "POST"], status_code=200, tags=tag)(BomLineListCreateView)
     api.view(
         PRODUCTION_API_PREFIX + "/bom-lines/{father}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(BomLineDetail)
-    api.view(PRODUCTION_API_PREFIX + "/production-orders", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderCollection)
+    )(BomLineDetailView)
+    api.view(PRODUCTION_API_PREFIX + "/production-orders", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderListCreateView)
     api.view(
         PRODUCTION_API_PREFIX + "/production-orders/{doc_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ProductionOrderDetail)
-    api.view(PRODUCTION_API_PREFIX + "/production-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderLineCollection)
+    )(ProductionOrderDetailView)
+    api.view(PRODUCTION_API_PREFIX + "/production-order-lines", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderLineListCreateView)
     api.view(
         PRODUCTION_API_PREFIX + "/production-order-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(ProductionOrderLineDetail)
-    api.view(PRODUCTION_API_PREFIX + "/oitt", methods=["GET", "POST"], status_code=200, tags=tag)(BomHeaderCollection)
+    )(ProductionOrderLineDetailView)
+    api.view(PRODUCTION_API_PREFIX + "/oitt", methods=["GET", "POST"], status_code=200, tags=tag)(BomHeaderListCreateView)
     api.view(PRODUCTION_API_PREFIX + "/oitt/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        BomHeaderDetail
+        BomHeaderDetailView
     )
-    api.view(PRODUCTION_API_PREFIX + "/itt1", methods=["GET", "POST"], status_code=200, tags=tag)(BomLineCollection)
+    api.view(PRODUCTION_API_PREFIX + "/itt1", methods=["GET", "POST"], status_code=200, tags=tag)(BomLineListCreateView)
     api.view(PRODUCTION_API_PREFIX + "/itt1/{father}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        BomLineDetail
+        BomLineDetailView
     )
-    api.view(PRODUCTION_API_PREFIX + "/owor", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderCollection)
+    api.view(PRODUCTION_API_PREFIX + "/owor", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderListCreateView)
     api.view(PRODUCTION_API_PREFIX + "/owor/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ProductionOrderDetail
+        ProductionOrderDetailView
     )
-    api.view(PRODUCTION_API_PREFIX + "/wor1", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderLineCollection)
+    api.view(PRODUCTION_API_PREFIX + "/wor1", methods=["GET", "POST"], status_code=200, tags=tag)(ProductionOrderLineListCreateView)
     api.view(PRODUCTION_API_PREFIX + "/wor1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        ProductionOrderLineDetail
+        ProductionOrderLineDetailView
     )

@@ -1,8 +1,16 @@
 
 """
-Finance Bolt API — GL, জার্নাল, ব্যাংকিং, ট্যাক্স, পিরিয়ড, বাজেট।
+Finance Bolt API — chart of accounts, journals, banking, tax, periods, budget.
 
-``django_bolt_guide.md``: ``APIView``, ``BadRequest`` / ``NotFound``। সিরিয়ালাইজার: ``serializers.py``।
+Each handler follows the same story for beginners:
+
+1. Read query/body parameters.
+2. Validate input (raise ``BadRequest`` early).
+3. Query or mutate the database.
+4. Return a small response object (construct ``*Response`` DTOs in this file).
+
+Routes stay SAP-compatible aliases (``/oact``, ``/jdt1``, …) **and** readable paths
+(``/gl-accounts``, …) so existing clients keep working.
 """
 from __future__ import annotations
 
@@ -10,15 +18,24 @@ from decimal import Decimal
 from typing import Any
 
 from asgiref.sync import sync_to_async
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.db.models import Q
 from django_bolt import BoltAPI
 from django_bolt.auth import IsAuthenticated, JWTAuthentication
 from django_bolt.exceptions import BadRequest, NotFound
+from django_bolt.request import Request
 from django_bolt.views import APIView
 
-from apps.businesspartner.services.bp_rollups import recalculate_bp_rollups
+from apps.core.beginner_style import (
+    async_recalculate_business_partner_rollups_for_card_codes,
+    async_run_sync_callable_and_map_validation_error_to_bad_request,
+    get_list_pagination_for_request,
+    get_optional_int_from_query,
+    require_dimension_1_to_5,
+    require_gl_group_mask_1_to_5,
+    require_open_or_closed_document_status,
+    require_yes_no_string_for_bolt,
+)
 from apps.finance.models import BGT1, JDT1, OACT, OBGT, OJDT, OFPR, OPRC, ORCT, OSTC, OVPM, RCT1, VPM1
 from apps.finance.services.auto_journal import (
     clear_document_journal,
@@ -26,6 +43,7 @@ from apps.finance.services.auto_journal import (
     sync_outgoing_payment_journal,
 )
 
+from .request_helpers import normalize_budget_profit_center_path_segment
 from .serializers import (
     BudgetLineCreateBody,
     BudgetLinePage,
@@ -81,50 +99,12 @@ from .serializers import (
 FINANCE_API_PREFIX = "/api/finance"
 
 
-def _read_pagination(request: Any) -> tuple[int, int, str]:
-    qd = getattr(request, "query", None) or {}
-    try:
-        limit = min(100, max(1, int(qd.get("limit", "50"))))
-    except ValueError:
-        limit = 50
-    try:
-        offset = max(0, int(qd.get("offset", "0")))
-    except ValueError:
-        offset = 0
-    search_prefix = (qd.get("q") or "").strip()
-    return limit, offset, search_prefix
-
-
-async def _bp_recalc_cards(*card_codes: str | None) -> None:
-    for cc in card_codes:
-        s = (cc or "").strip()
-        if s:
-            await sync_to_async(recalculate_bp_rollups)(s)
-
-
-async def _finance_journal_sync(fn, *args) -> None:
-    try:
-        await sync_to_async(fn)(*args)
-    except ValidationError as exc:
-        msgs = list(getattr(exc, "messages", []))
-        detail = "; ".join(str(m) for m in msgs) if msgs else str(exc)
-        raise BadRequest(detail=detail) from exc
-
-
-def _yn(name: str, v: str | None) -> str:
-    if v is None:
-        raise BadRequest(detail=f"{name} required.")
-    c = (v or "N").strip().upper()[:1] or "N"
-    if c not in ("Y", "N"):
-        raise BadRequest(detail=f"{name} must be Y or N.")
-    return c
-
-class GlAccountCollection(APIView):
+class GlAccountListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> GlAccountPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> GlAccountPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OACT.objects.all().order_by("AcctCode")
         if search_prefix:
             qs = qs.filter(Q(AcctCode__istartswith=search_prefix) | Q(AcctName__istartswith=search_prefix))
@@ -139,6 +119,8 @@ class GlAccountCollection(APIView):
                     FatherNum=o.FatherNum or "",
                     Postable=o.Postable,
                     LocCash=o.LocCash,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                 )
                 for o in rows
             ],
@@ -149,8 +131,8 @@ class GlAccountCollection(APIView):
     async def post(self, data: GlAccountCreateBody) -> GlAccountResponse:
         if int(data.GroupMask) not in (1, 2, 3, 4, 5):
             raise BadRequest(detail="GroupMask must be 1–5.")
-        postable = _yn("Postable", data.Postable)
-        loccash = _yn("LocCash", data.LocCash)
+        postable = require_yes_no_string_for_bolt("Postable", data.Postable)
+        loccash = require_yes_no_string_for_bolt("LocCash", data.LocCash)
         o = OACT(
             AcctCode=data.AcctCode.strip(),
             AcctName=data.AcctName.strip(),
@@ -159,6 +141,8 @@ class GlAccountCollection(APIView):
             FatherNum=(data.FatherNum or "").strip(),
             Postable=postable,
             LocCash=loccash,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         try:
             await o.asave()
@@ -172,10 +156,12 @@ class GlAccountCollection(APIView):
             FatherNum=o.FatherNum or "",
             Postable=o.Postable,
             LocCash=o.LocCash,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
 
-class GlAccountDetail(APIView):
+class GlAccountDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -192,6 +178,8 @@ class GlAccountDetail(APIView):
             FatherNum=o.FatherNum or "",
             Postable=o.Postable,
             LocCash=o.LocCash,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def patch(self, acct_code: str, data: GlAccountPatchBody) -> GlAccountResponse:
@@ -210,9 +198,13 @@ class GlAccountDetail(APIView):
         if data.FatherNum is not None:
             o.FatherNum = data.FatherNum.strip()
         if data.Postable is not None:
-            o.Postable = _yn("Postable", data.Postable)
+            o.Postable = require_yes_no_string_for_bolt("Postable", data.Postable)
         if data.LocCash is not None:
-            o.LocCash = _yn("LocCash", data.LocCash)
+            o.LocCash = require_yes_no_string_for_bolt("LocCash", data.LocCash)
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         await o.asave()
         return GlAccountResponse(
             AcctCode=o.AcctCode,
@@ -222,6 +214,8 @@ class GlAccountDetail(APIView):
             FatherNum=o.FatherNum or "",
             Postable=o.Postable,
             LocCash=o.LocCash,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def delete(self, acct_code: str) -> GlAccountResponse:
@@ -237,16 +231,18 @@ class GlAccountDetail(APIView):
             FatherNum=o.FatherNum or "",
             Postable=o.Postable,
             LocCash=o.LocCash,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
         await o.adelete()
         return rep
 
-class ProfitCenterCollection(APIView):
+class ProfitCenterListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> ProfitCenterPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> ProfitCenterPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OPRC.objects.all().order_by("PrcCode")
         if search_prefix:
             qs = qs.filter(Q(PrcCode__istartswith=search_prefix) | Q(PrcName__istartswith=search_prefix))
@@ -258,6 +254,8 @@ class ProfitCenterCollection(APIView):
                     PrcName=o.PrcName,
                     DimCode=o.DimCode,
                     Active=o.Active,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                 )
                 for o in rows
             ],
@@ -268,21 +266,30 @@ class ProfitCenterCollection(APIView):
     async def post(self, data: ProfitCenterCreateBody) -> ProfitCenterResponse:
         if int(data.DimCode) not in (1, 2, 3, 4, 5):
             raise BadRequest(detail="DimCode must be 1–5.")
-        active = _yn("Active", data.Active)
+        active = require_yes_no_string_for_bolt("Active", data.Active)
         o = OPRC(
             PrcCode=data.PrcCode.strip(),
             PrcName=data.PrcName.strip(),
             DimCode=int(data.DimCode),
             Active=active,
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         try:
             await o.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate PrcCode.")
-        return ProfitCenterResponse(PrcCode=o.PrcCode, PrcName=o.PrcName, DimCode=o.DimCode, Active=o.Active)
+        return ProfitCenterResponse(
+            PrcCode=o.PrcCode,
+            PrcName=o.PrcName,
+            DimCode=o.DimCode,
+            Active=o.Active,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
+        )
 
 
-class ProfitCenterDetail(APIView):
+class ProfitCenterDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -291,7 +298,14 @@ class ProfitCenterDetail(APIView):
             o = await OPRC.objects.aget(pk=prc_code.strip())
         except OPRC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        return ProfitCenterResponse(PrcCode=o.PrcCode, PrcName=o.PrcName, DimCode=o.DimCode, Active=o.Active)
+        return ProfitCenterResponse(
+            PrcCode=o.PrcCode,
+            PrcName=o.PrcName,
+            DimCode=o.DimCode,
+            Active=o.Active,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
+        )
 
     async def patch(self, prc_code: str, data: ProfitCenterPatchBody) -> ProfitCenterResponse:
         try:
@@ -305,25 +319,43 @@ class ProfitCenterDetail(APIView):
                 raise BadRequest(detail="DimCode must be 1–5.")
             o.DimCode = int(data.DimCode)
         if data.Active is not None:
-            o.Active = _yn("Active", data.Active)
+            o.Active = require_yes_no_string_for_bolt("Active", data.Active)
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         await o.asave()
-        return ProfitCenterResponse(PrcCode=o.PrcCode, PrcName=o.PrcName, DimCode=o.DimCode, Active=o.Active)
+        return ProfitCenterResponse(
+            PrcCode=o.PrcCode,
+            PrcName=o.PrcName,
+            DimCode=o.DimCode,
+            Active=o.Active,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
+        )
 
     async def delete(self, prc_code: str) -> ProfitCenterResponse:
         try:
             o = await OPRC.objects.aget(pk=prc_code.strip())
         except OPRC.DoesNotExist:
             raise NotFound(detail="খুঁজে পাওয়া যায়নি।")
-        rep = ProfitCenterResponse(PrcCode=o.PrcCode, PrcName=o.PrcName, DimCode=o.DimCode, Active=o.Active)
+        rep = ProfitCenterResponse(
+            PrcCode=o.PrcCode,
+            PrcName=o.PrcName,
+            DimCode=o.DimCode,
+            Active=o.Active,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
+        )
         await o.adelete()
         return rep
 
-class JournalEntryCollection(APIView):
+class JournalEntryListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> JournalEntryPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> JournalEntryPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OJDT.objects.all().order_by("-TransId")
         if search_prefix:
             qs = qs.filter(BaseRef__istartswith=search_prefix)
@@ -336,6 +368,8 @@ class JournalEntryCollection(APIView):
                     RefDate=o.RefDate,
                     TransType=o.TransType,
                     Memo=o.Memo or "",
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                 )
                 for o in rows
             ],
@@ -349,6 +383,8 @@ class JournalEntryCollection(APIView):
             RefDate=data.RefDate,
             TransType=int(data.TransType),
             Memo=(data.Memo or "").strip(),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
         return JournalEntryResponse(
@@ -357,10 +393,12 @@ class JournalEntryCollection(APIView):
             RefDate=o.RefDate,
             TransType=o.TransType,
             Memo=o.Memo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
 
-class JournalEntryDetail(APIView):
+class JournalEntryDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -375,6 +413,8 @@ class JournalEntryDetail(APIView):
             RefDate=o.RefDate,
             TransType=o.TransType,
             Memo=o.Memo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def patch(self, trans_id: int, data: JournalEntryPatchBody) -> JournalEntryResponse:
@@ -390,6 +430,10 @@ class JournalEntryDetail(APIView):
             o.TransType = int(data.TransType)
         if data.Memo is not None:
             o.Memo = data.Memo.strip()
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         await o.asave()
         return JournalEntryResponse(
             TransId=o.TransId,
@@ -397,6 +441,8 @@ class JournalEntryDetail(APIView):
             RefDate=o.RefDate,
             TransType=o.TransType,
             Memo=o.Memo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def delete(self, trans_id: int) -> JournalEntryResponse:
@@ -410,17 +456,19 @@ class JournalEntryDetail(APIView):
             RefDate=o.RefDate,
             TransType=o.TransType,
             Memo=o.Memo or "",
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
         await o.adelete()
         return rep
 
 
-class JournalEntryLineCollection(APIView):
+class JournalEntryLineListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> JournalEntryLinePage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> JournalEntryLinePage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd = getattr(self.request, "query", None) or {}
         raw = (qd.get("trans_id") or "").strip()
         trans_id = int(raw) if raw else None
@@ -474,7 +522,7 @@ class JournalEntryLineCollection(APIView):
         )
 
 
-class JournalEntryLineDetail(APIView):
+class JournalEntryLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -536,12 +584,12 @@ class JournalEntryLineDetail(APIView):
         await o.adelete()
         return rep
 
-class IncomingPaymentCollection(APIView):
+class IncomingPaymentListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> IncomingPaymentPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> IncomingPaymentPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = ORCT.objects.all().order_by("-DocEntry")
         if search_prefix:
             qs = qs.filter(Q(CardCode__istartswith=search_prefix) | Q(CardName__istartswith=search_prefix))
@@ -557,6 +605,9 @@ class IncomingPaymentCollection(APIView):
                     CheckAcct=o.CheckAcct or "",
                     DocTotal=str(o.DocTotal),
                     CashSum=str(o.CashSum),
+                    DocStatus=o.DocStatus,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                 )
                 for o in rows
             ],
@@ -573,10 +624,12 @@ class IncomingPaymentCollection(APIView):
             CheckAcct=(data.CheckAcct or "").strip(),
             DocTotal=Decimal(str(data.DocTotal or "0")),
             CashSum=Decimal(str(data.CashSum or "0")),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
-        await _finance_journal_sync(sync_incoming_payment_journal, int(o.DocEntry))
-        await _bp_recalc_cards(o.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_incoming_payment_journal, int(o.DocEntry))
+        await async_recalculate_business_partner_rollups_for_card_codes(o.CardCode)
         return IncomingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -586,10 +639,13 @@ class IncomingPaymentCollection(APIView):
             CheckAcct=o.CheckAcct or "",
             DocTotal=str(o.DocTotal),
             CashSum=str(o.CashSum),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
 
-class IncomingPaymentDetail(APIView):
+class IncomingPaymentDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -607,6 +663,9 @@ class IncomingPaymentDetail(APIView):
             CheckAcct=o.CheckAcct or "",
             DocTotal=str(o.DocTotal),
             CashSum=str(o.CashSum),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def patch(self, doc_entry: int, data: IncomingPaymentPatchBody) -> IncomingPaymentResponse:
@@ -629,14 +688,18 @@ class IncomingPaymentDetail(APIView):
             o.DocTotal = Decimal(str(data.DocTotal))
         if data.CashSum is not None:
             o.CashSum = Decimal(str(data.CashSum))
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.DocStatus is not None:
             st = (data.DocStatus or "O").strip().upper()[:1] or "O"
             if st not in ("O", "C"):
                 raise BadRequest(detail="DocStatus must be O or C.")
             o.DocStatus = st
         await o.asave()
-        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
-        await _bp_recalc_cards(old_cc, o.CardCode)
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_incoming_payment_journal, int(doc_entry))
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc, o.CardCode)
         return IncomingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -646,6 +709,9 @@ class IncomingPaymentDetail(APIView):
             CheckAcct=o.CheckAcct or "",
             DocTotal=str(o.DocTotal),
             CashSum=str(o.CashSum),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def delete(self, doc_entry: int) -> IncomingPaymentResponse:
@@ -662,20 +728,23 @@ class IncomingPaymentDetail(APIView):
             CheckAcct=o.CheckAcct or "",
             DocTotal=str(o.DocTotal),
             CashSum=str(o.CashSum),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
         old_cc = o.CardCode.strip()
         await sync_to_async(clear_document_journal)("ORCT", int(doc_entry))
         await o.adelete()
-        await _bp_recalc_cards(old_cc)
+        await async_recalculate_business_partner_rollups_for_card_codes(old_cc)
         return rep
 
 
-class IncomingPaymentLineCollection(APIView):
+class IncomingPaymentLineListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> IncomingPaymentLinePage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> IncomingPaymentLinePage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd = getattr(self.request, "query", None) or {}
         raw = (qd.get("doc_entry") or "").strip()
         doc_entry = int(raw) if raw else None
@@ -712,7 +781,7 @@ class IncomingPaymentLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _finance_journal_sync(sync_incoming_payment_journal, int(line.header_id))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_incoming_payment_journal, int(line.header_id))
         return IncomingPaymentLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -722,7 +791,7 @@ class IncomingPaymentLineCollection(APIView):
         )
 
 
-class IncomingPaymentLineDetail(APIView):
+class IncomingPaymentLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -751,7 +820,7 @@ class IncomingPaymentLineDetail(APIView):
         if data.InvType is not None:
             o.InvType = int(data.InvType)
         await o.asave()
-        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_incoming_payment_journal, int(doc_entry))
         return IncomingPaymentLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -773,16 +842,16 @@ class IncomingPaymentLineDetail(APIView):
             InvType=o.InvType,
         )
         await o.adelete()
-        await _finance_journal_sync(sync_incoming_payment_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_incoming_payment_journal, int(doc_entry))
         return rep
 
 
-class OutgoingPaymentCollection(APIView):
+class OutgoingPaymentListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> OutgoingPaymentPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> OutgoingPaymentPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OVPM.objects.all().order_by("-DocEntry")
         if search_prefix:
             qs = qs.filter(Q(CardCode__istartswith=search_prefix) | Q(CardName__istartswith=search_prefix))
@@ -798,6 +867,9 @@ class OutgoingPaymentCollection(APIView):
                     CashSum=str(o.CashSum),
                     TrsfrSum=str(o.TrsfrSum),
                     DocTotal=str(o.DocTotal),
+                    DocStatus=o.DocStatus,
+                    U_UserFld1=o.U_UserFld1 or "",
+                    U_UserFld2=o.U_UserFld2 or "",
                 )
                 for o in rows
             ],
@@ -814,9 +886,11 @@ class OutgoingPaymentCollection(APIView):
             CashSum=Decimal(str(data.CashSum or "0")),
             TrsfrSum=Decimal(str(data.TrsfrSum or "0")),
             DocTotal=Decimal(str(data.DocTotal or "0")),
+            U_UserFld1=(data.U_UserFld1 or "").strip()[:254],
+            U_UserFld2=(data.U_UserFld2 or "").strip()[:254],
         )
         await o.asave()
-        await _finance_journal_sync(sync_outgoing_payment_journal, int(o.DocEntry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_outgoing_payment_journal, int(o.DocEntry))
         return OutgoingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -826,10 +900,13 @@ class OutgoingPaymentCollection(APIView):
             CashSum=str(o.CashSum),
             TrsfrSum=str(o.TrsfrSum),
             DocTotal=str(o.DocTotal),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
 
-class OutgoingPaymentDetail(APIView):
+class OutgoingPaymentDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -847,6 +924,9 @@ class OutgoingPaymentDetail(APIView):
             CashSum=str(o.CashSum),
             TrsfrSum=str(o.TrsfrSum),
             DocTotal=str(o.DocTotal),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def patch(self, doc_entry: int, data: OutgoingPaymentPatchBody) -> OutgoingPaymentResponse:
@@ -868,13 +948,17 @@ class OutgoingPaymentDetail(APIView):
             o.TrsfrSum = Decimal(str(data.TrsfrSum))
         if data.DocTotal is not None:
             o.DocTotal = Decimal(str(data.DocTotal))
+        if data.U_UserFld1 is not None:
+            o.U_UserFld1 = (data.U_UserFld1 or "").strip()[:254]
+        if data.U_UserFld2 is not None:
+            o.U_UserFld2 = (data.U_UserFld2 or "").strip()[:254]
         if data.DocStatus is not None:
             st = (data.DocStatus or "O").strip().upper()[:1] or "O"
             if st not in ("O", "C"):
                 raise BadRequest(detail="DocStatus must be O or C.")
             o.DocStatus = st
         await o.asave()
-        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_outgoing_payment_journal, int(doc_entry))
         return OutgoingPaymentResponse(
             DocEntry=o.DocEntry,
             CardCode=o.CardCode,
@@ -884,6 +968,9 @@ class OutgoingPaymentDetail(APIView):
             CashSum=str(o.CashSum),
             TrsfrSum=str(o.TrsfrSum),
             DocTotal=str(o.DocTotal),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
 
     async def delete(self, doc_entry: int) -> OutgoingPaymentResponse:
@@ -900,18 +987,21 @@ class OutgoingPaymentDetail(APIView):
             CashSum=str(o.CashSum),
             TrsfrSum=str(o.TrsfrSum),
             DocTotal=str(o.DocTotal),
+            DocStatus=o.DocStatus,
+            U_UserFld1=o.U_UserFld1 or "",
+            U_UserFld2=o.U_UserFld2 or "",
         )
         await sync_to_async(clear_document_journal)("OVPM", int(doc_entry))
         await o.adelete()
         return rep
 
 
-class OutgoingPaymentLineCollection(APIView):
+class OutgoingPaymentLineListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> OutgoingPaymentLinePage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> OutgoingPaymentLinePage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd = getattr(self.request, "query", None) or {}
         raw = (qd.get("doc_entry") or "").strip()
         doc_entry = int(raw) if raw else None
@@ -948,7 +1038,7 @@ class OutgoingPaymentLineCollection(APIView):
             await line.asave()
         except IntegrityError:
             raise BadRequest(detail="Duplicate line or invalid DocEntry.")
-        await _finance_journal_sync(sync_outgoing_payment_journal, int(line.header_id))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_outgoing_payment_journal, int(line.header_id))
         return OutgoingPaymentLineResponse(
             DocEntry=line.header_id,
             LineNum=line.LineNum,
@@ -958,7 +1048,7 @@ class OutgoingPaymentLineCollection(APIView):
         )
 
 
-class OutgoingPaymentLineDetail(APIView):
+class OutgoingPaymentLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -987,7 +1077,7 @@ class OutgoingPaymentLineDetail(APIView):
         if data.InvType is not None:
             o.InvType = int(data.InvType)
         await o.asave()
-        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_outgoing_payment_journal, int(doc_entry))
         return OutgoingPaymentLineResponse(
             DocEntry=o.header_id,
             LineNum=o.LineNum,
@@ -1009,16 +1099,16 @@ class OutgoingPaymentLineDetail(APIView):
             InvType=o.InvType,
         )
         await o.adelete()
-        await _finance_journal_sync(sync_outgoing_payment_journal, int(doc_entry))
+        await async_run_sync_callable_and_map_validation_error_to_bad_request(sync_outgoing_payment_journal, int(doc_entry))
         return rep
 
 
-class TaxCodeCollection(APIView):
+class TaxCodeListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> TaxCodePage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> TaxCodePage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OSTC.objects.all().order_by("Code")
         if search_prefix:
             qs = qs.filter(Q(Code__istartswith=search_prefix) | Q(Name__istartswith=search_prefix))
@@ -1046,7 +1136,7 @@ class TaxCodeCollection(APIView):
         return TaxCodeResponse(Code=o.Code, Name=o.Name, Rate=str(o.Rate), Account=o.Account or "")
 
 
-class TaxCodeDetail(APIView):
+class TaxCodeDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1081,12 +1171,12 @@ class TaxCodeDetail(APIView):
         return rep
 
 
-class FinancialPeriodCollection(APIView):
+class FinancialPeriodListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> FinancialPeriodPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> FinancialPeriodPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OFPR.objects.all().order_by("-AbsEntry")
         if search_prefix:
             qs = qs.filter(PeriodCode__istartswith=search_prefix)
@@ -1126,7 +1216,7 @@ class FinancialPeriodCollection(APIView):
         )
 
 
-class FinancialPeriodDetail(APIView):
+class FinancialPeriodDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1181,12 +1271,12 @@ class FinancialPeriodDetail(APIView):
         return rep
 
 
-class BudgetSetupCollection(APIView):
+class BudgetSetupListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BudgetSetupPage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> BudgetSetupPage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qs = OBGT.objects.select_related("AcctCode").all().order_by("AcctCode_id")
         if search_prefix:
             qs = qs.filter(AcctCode_id__istartswith=search_prefix)
@@ -1210,7 +1300,7 @@ class BudgetSetupCollection(APIView):
         return BudgetSetupResponse(AcctCode=o.AcctCode_id, BudgTotal=str(o.BudgTotal))
 
 
-class BudgetSetupDetail(APIView):
+class BudgetSetupDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
@@ -1241,16 +1331,12 @@ class BudgetSetupDetail(APIView):
         return rep
 
 
-def _norm_prc(prc_code: str) -> str:
-    return "" if prc_code.strip() == "-" else prc_code.strip()
-
-
-class BudgetLineCollection(APIView):
+class BudgetLineListCreateView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
-    async def get(self) -> BudgetLinePage:
-        limit, offset, search_prefix = _read_pagination(self.request)
+    async def get(self, request: Request) -> BudgetLinePage:
+        limit, offset, search_prefix = get_list_pagination_for_request(self.request)
         qd = getattr(self.request, "query", None) or {}
         raw_ac = (qd.get("acct_code") or "").strip()
         raw_m = (qd.get("month") or "").strip()
@@ -1299,12 +1385,12 @@ class BudgetLineCollection(APIView):
         )
 
 
-class BudgetLineDetail(APIView):
+class BudgetLineDetailView(APIView):
     auth = [JWTAuthentication()]
     guards = [IsAuthenticated()]
 
     async def get(self, acct_code: str, month: int, prc_code: str) -> BudgetLineResponse:
-        pc = _norm_prc(prc_code)
+        pc = normalize_budget_profit_center_path_segment(prc_code)
         try:
             o = await BGT1.objects.aget(header_id=acct_code.strip(), Month=int(month), PrcCode=pc)
         except BGT1.DoesNotExist:
@@ -1317,7 +1403,7 @@ class BudgetLineDetail(APIView):
         )
 
     async def patch(self, acct_code: str, month: int, prc_code: str, data: BudgetLinePatchBody) -> BudgetLineResponse:
-        pc = _norm_prc(prc_code)
+        pc = normalize_budget_profit_center_path_segment(prc_code)
         try:
             o = await BGT1.objects.aget(header_id=acct_code.strip(), Month=int(month), PrcCode=pc)
         except BGT1.DoesNotExist:
@@ -1333,7 +1419,7 @@ class BudgetLineDetail(APIView):
         )
 
     async def delete(self, acct_code: str, month: int, prc_code: str) -> BudgetLineResponse:
-        pc = _norm_prc(prc_code)
+        pc = normalize_budget_profit_center_path_segment(prc_code)
         try:
             o = await BGT1.objects.aget(header_id=acct_code.strip(), Month=int(month), PrcCode=pc)
         except BGT1.DoesNotExist:
@@ -1351,94 +1437,94 @@ class BudgetLineDetail(APIView):
 def attach_finance_routes(api: BoltAPI) -> None:
     tag = ["finance"]
     p = FINANCE_API_PREFIX
-    api.view(p + "/chart-of-accounts", methods=["GET", "POST"], status_code=200, tags=tag)(GlAccountCollection)
-    api.view(p + "/chart-of-accounts/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(GlAccountDetail)
-    api.view(p + "/profit-centers", methods=["GET", "POST"], status_code=200, tags=tag)(ProfitCenterCollection)
-    api.view(p + "/profit-centers/{prc_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(ProfitCenterDetail)
-    api.view(p + "/journal-entries", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryCollection)
-    api.view(p + "/journal-entries/{trans_id}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(JournalEntryDetail)
-    api.view(p + "/journal-entry-lines", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryLineCollection)
+    api.view(p + "/chart-of-accounts", methods=["GET", "POST"], status_code=200, tags=tag)(GlAccountListCreateView)
+    api.view(p + "/chart-of-accounts/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(GlAccountDetailView)
+    api.view(p + "/profit-centers", methods=["GET", "POST"], status_code=200, tags=tag)(ProfitCenterListCreateView)
+    api.view(p + "/profit-centers/{prc_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(ProfitCenterDetailView)
+    api.view(p + "/journal-entries", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryListCreateView)
+    api.view(p + "/journal-entries/{trans_id}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(JournalEntryDetailView)
+    api.view(p + "/journal-entry-lines", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryLineListCreateView)
     api.view(
         p + "/journal-entry-lines/{trans_id}/{line_id}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(JournalEntryLineDetail)
-    api.view(p + "/incoming-payments", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentCollection)
+    )(JournalEntryLineDetailView)
+    api.view(p + "/incoming-payments", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentListCreateView)
     api.view(p + "/incoming-payments/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        IncomingPaymentDetail
+        IncomingPaymentDetailView
     )
-    api.view(p + "/incoming-payment-lines", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentLineCollection)
+    api.view(p + "/incoming-payment-lines", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentLineListCreateView)
     api.view(
         p + "/incoming-payment-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(IncomingPaymentLineDetail)
-    api.view(p + "/oact", methods=["GET", "POST"], status_code=200, tags=tag)(GlAccountCollection)
-    api.view(p + "/oact/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(GlAccountDetail)
-    api.view(p + "/oprc", methods=["GET", "POST"], status_code=200, tags=tag)(ProfitCenterCollection)
-    api.view(p + "/oprc/{prc_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(ProfitCenterDetail)
-    api.view(p + "/ojdt", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryCollection)
-    api.view(p + "/ojdt/{trans_id}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(JournalEntryDetail)
-    api.view(p + "/jdt1", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryLineCollection)
+    )(IncomingPaymentLineDetailView)
+    api.view(p + "/oact", methods=["GET", "POST"], status_code=200, tags=tag)(GlAccountListCreateView)
+    api.view(p + "/oact/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(GlAccountDetailView)
+    api.view(p + "/oprc", methods=["GET", "POST"], status_code=200, tags=tag)(ProfitCenterListCreateView)
+    api.view(p + "/oprc/{prc_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(ProfitCenterDetailView)
+    api.view(p + "/ojdt", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryListCreateView)
+    api.view(p + "/ojdt/{trans_id}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(JournalEntryDetailView)
+    api.view(p + "/jdt1", methods=["GET", "POST"], status_code=200, tags=tag)(JournalEntryLineListCreateView)
     api.view(p + "/jdt1/{trans_id}/{line_id}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        JournalEntryLineDetail
+        JournalEntryLineDetailView
     )
-    api.view(p + "/orct", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentCollection)
-    api.view(p + "/orct/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(IncomingPaymentDetail)
-    api.view(p + "/rct1", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentLineCollection)
+    api.view(p + "/orct", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentListCreateView)
+    api.view(p + "/orct/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(IncomingPaymentDetailView)
+    api.view(p + "/rct1", methods=["GET", "POST"], status_code=200, tags=tag)(IncomingPaymentLineListCreateView)
     api.view(p + "/rct1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        IncomingPaymentLineDetail
+        IncomingPaymentLineDetailView
     )
-    api.view(p + "/outgoing-payments", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentCollection)
+    api.view(p + "/outgoing-payments", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentListCreateView)
     api.view(p + "/outgoing-payments/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        OutgoingPaymentDetail
+        OutgoingPaymentDetailView
     )
-    api.view(p + "/outgoing-payment-lines", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentLineCollection)
+    api.view(p + "/outgoing-payment-lines", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentLineListCreateView)
     api.view(
         p + "/outgoing-payment-lines/{doc_entry}/{line_num}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(OutgoingPaymentLineDetail)
-    api.view(p + "/tax-codes", methods=["GET", "POST"], status_code=200, tags=tag)(TaxCodeCollection)
-    api.view(p + "/tax-codes/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(TaxCodeDetail)
-    api.view(p + "/financial-periods", methods=["GET", "POST"], status_code=200, tags=tag)(FinancialPeriodCollection)
+    )(OutgoingPaymentLineDetailView)
+    api.view(p + "/tax-codes", methods=["GET", "POST"], status_code=200, tags=tag)(TaxCodeListCreateView)
+    api.view(p + "/tax-codes/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(TaxCodeDetailView)
+    api.view(p + "/financial-periods", methods=["GET", "POST"], status_code=200, tags=tag)(FinancialPeriodListCreateView)
     api.view(
         p + "/financial-periods/{abs_entry}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(FinancialPeriodDetail)
-    api.view(p + "/budget-setups", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetSetupCollection)
+    )(FinancialPeriodDetailView)
+    api.view(p + "/budget-setups", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetSetupListCreateView)
     api.view(p + "/budget-setups/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        BudgetSetupDetail
+        BudgetSetupDetailView
     )
-    api.view(p + "/budget-lines", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetLineCollection)
+    api.view(p + "/budget-lines", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetLineListCreateView)
     api.view(
         p + "/budget-lines/{acct_code}/{month}/{prc_code}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(BudgetLineDetail)
-    api.view(p + "/ovpm", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentCollection)
-    api.view(p + "/ovpm/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(OutgoingPaymentDetail)
-    api.view(p + "/vpm1", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentLineCollection)
+    )(BudgetLineDetailView)
+    api.view(p + "/ovpm", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentListCreateView)
+    api.view(p + "/ovpm/{doc_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(OutgoingPaymentDetailView)
+    api.view(p + "/vpm1", methods=["GET", "POST"], status_code=200, tags=tag)(OutgoingPaymentLineListCreateView)
     api.view(p + "/vpm1/{doc_entry}/{line_num}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(
-        OutgoingPaymentLineDetail
+        OutgoingPaymentLineDetailView
     )
-    api.view(p + "/ostc", methods=["GET", "POST"], status_code=200, tags=tag)(TaxCodeCollection)
-    api.view(p + "/ostc/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(TaxCodeDetail)
-    api.view(p + "/ofpr", methods=["GET", "POST"], status_code=200, tags=tag)(FinancialPeriodCollection)
-    api.view(p + "/ofpr/{abs_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(FinancialPeriodDetail)
-    api.view(p + "/obgt", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetSetupCollection)
-    api.view(p + "/obgt/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BudgetSetupDetail)
-    api.view(p + "/bgt1", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetLineCollection)
+    api.view(p + "/ostc", methods=["GET", "POST"], status_code=200, tags=tag)(TaxCodeListCreateView)
+    api.view(p + "/ostc/{code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(TaxCodeDetailView)
+    api.view(p + "/ofpr", methods=["GET", "POST"], status_code=200, tags=tag)(FinancialPeriodListCreateView)
+    api.view(p + "/ofpr/{abs_entry}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(FinancialPeriodDetailView)
+    api.view(p + "/obgt", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetSetupListCreateView)
+    api.view(p + "/obgt/{acct_code}", methods=["GET", "PATCH", "DELETE"], status_code=200, tags=tag)(BudgetSetupDetailView)
+    api.view(p + "/bgt1", methods=["GET", "POST"], status_code=200, tags=tag)(BudgetLineListCreateView)
     api.view(
         p + "/bgt1/{acct_code}/{month}/{prc_code}",
         methods=["GET", "PATCH", "DELETE"],
         status_code=200,
         tags=tag,
-    )(BudgetLineDetail)
+    )(BudgetLineDetailView)
 

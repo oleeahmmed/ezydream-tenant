@@ -45,6 +45,12 @@ const MENU: Group[] = [
     ],
   },
   {
+    id: "whs",
+    icon: "🏢",
+    title: "Warehouse",
+    items: [{ icon: "🏪", label: "Warehouses (OWHS)", path: "/warehouse/warehouses" }],
+  },
+  {
     id: "inv",
     icon: "📦",
     title: "Inventory",
@@ -65,7 +71,7 @@ const MENU: Group[] = [
 
 /** Left module tree — opens workspace tabs for each module. */
 export function SapModuleSidebar() {
-  const { openInventoryModule, openSalesModule, openPurchaseModule, openProductionModule, openFinanceModule, activeNavPath } = useWorkspace();
+  const { openInventoryModule, openSalesModule, openPurchaseModule, openProductionModule, openFinanceModule, openWarehouseModule, activeNavPath } = useWorkspace();
   const [openId, setOpenId] = useState<string | null>("inv");
   const [q, setQ] = useState("");
 
@@ -148,6 +154,11 @@ export function SapModuleSidebar() {
                           openProductionModule(prd, it.label, it.path);
                           return;
                         }
+                        const whs = it.path.match(/^\/warehouse\/([^/]+)\/?$/)?.[1];
+                        if (whs) {
+                          openWarehouseModule(whs, it.label, it.path);
+                          return;
+                        }
                         const fin = it.path.match(/^\/finance\/([^/]+)\/?$/)?.[1];
                         if (fin) {
                           openFinanceModule(fin, it.label, it.path);
@@ -175,6 +186,11 @@ export function SapModuleSidebar() {
                         const prd = it.path.match(/^\/production\/([^/]+)\/?$/)?.[1];
                         if (prd) {
                           openProductionModule(prd, it.label, it.path);
+                          return;
+                        }
+                        const whs = it.path.match(/^\/warehouse\/([^/]+)\/?$/)?.[1];
+                        if (whs) {
+                          openWarehouseModule(whs, it.label, it.path);
                           return;
                         }
                         const fin = it.path.match(/^\/finance\/([^/]+)\/?$/)?.[1];

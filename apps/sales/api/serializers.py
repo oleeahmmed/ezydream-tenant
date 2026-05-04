@@ -34,6 +34,8 @@ class SalesQuotationResponse(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -64,6 +66,8 @@ class SalesQuotationCreateBody(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -85,6 +89,8 @@ class SalesQuotationPatchBody(Serializer):
     Comments: str | None = field(default=None)
     SlpCode: int | None = field(default=None)
     OwnerCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -158,6 +164,8 @@ class SalesOrderResponse(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -188,6 +196,8 @@ class SalesOrderCreateBody(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -209,6 +219,8 @@ class SalesOrderPatchBody(Serializer):
     Comments: str | None = field(default=None)
     SlpCode: int | None = field(default=None)
     OwnerCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -288,6 +300,8 @@ class DeliveryNoteResponse(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -318,6 +332,8 @@ class DeliveryNoteCreateBody(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -339,6 +355,8 @@ class DeliveryNotePatchBody(Serializer):
     Comments: str | None = field(default=None)
     SlpCode: int | None = field(default=None)
     OwnerCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -421,6 +439,8 @@ class CustomerReturnResponse(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -451,6 +471,8 @@ class CustomerReturnCreateBody(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -472,6 +494,8 @@ class CustomerReturnPatchBody(Serializer):
     Comments: str | None = field(default=None)
     SlpCode: int | None = field(default=None)
     OwnerCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 
@@ -553,6 +577,8 @@ class SalesInvoiceResponse(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
     Canceled: str
 
 
@@ -582,6 +608,8 @@ class SalesInvoiceCreateBody(Serializer):
     Comments: str = field(default="")
     SlpCode: int | None = field(default=None)
     OwnerCode: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 
@@ -602,6 +630,8 @@ class SalesInvoicePatchBody(Serializer):
     Comments: str | None = field(default=None)
     SlpCode: int | None = field(default=None)
     OwnerCode: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
     Canceled: str | None = field(default=None)
 
 

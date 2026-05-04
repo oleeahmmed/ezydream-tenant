@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { apiFetch } from "../../lib/apiFetch";
-import { fetchBusinessPartner } from "../../lib/businessPartnerApi";
 import { useWorkspace } from "../../workspace/WorkspaceContext";
 import { BpSearchModal } from "../../ui/BpSearchModal";
 import { DocumentFindModal } from "../../ui/DocumentFindModal";
-import { DocumentNotificationStrip } from "../../ui/DocumentNotificationStrip";
+import { SapDateField } from "../../ui/SapDateField";
+import { documentNoticeLevel } from "../../ui/DocumentNotificationStrip";
 import { ItemSearchModal } from "../../ui/ItemSearchModal";
 import { LineGridContextMenu, type LineGridCtxAction } from "../../ui/LineGridContextMenu";
 import { LiveClock } from "../../ui/LiveClock";
 import { SapAutocompleteInput } from "../../ui/SapAutocompleteInput";
 import type { DocumentRegistryEntry, HeaderField } from "./documentTypes";
 import { fetchItemByCode } from "../sales/shared/itemMasterApi";
-import { SapSalesRightPanel } from "../sales/shared/SapSalesRightPanel";
+import { useFieldChoiceLookup, resolveSelectControlState } from "../../lib/useFieldChoiceLookup";
+import { SapDocRightSidebar } from "./SapDocRightSidebar";
 import {
   apiLineToFormset,
   buildCreateBody,
@@ -44,6 +45,12 @@ function lineColClass(key: string): string {
     ItemCode: "col-item",
     Dscription: "col-desc",
     Quantity: "col-qty",
+    OpenQty: "col-qty",
+    FromWhsCod: "col-whs",
+    Account: "col-desc",
+    InQty: "col-qty",
+    OutQty: "col-qty",
+    Difference: "col-qty",
     Price: "col-price",
     DiscPrcnt: "col-disc",
     LineTotal: "col-total",
@@ -77,8 +84,11 @@ function rowPrimaryKey(row: Row, def: DocumentRegistryEntry): string | number | 
 
 /** SAP-style document window (Contents grid, footer, find) — shared by Sales / Purchase / Production. */
 export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
-  const { registerTabActions } = useWorkspace();
-  const canUpdate = import.meta.env.VITE_INVENTORY_READONLY === "true" ? false : true;
+  const { registerTabActions, udfSidebarVisible, setUdfSidebarVisible } = useWorkspace();
+  const canUpdate =
+    def.docRootClassName === "sap-inventory-doc"
+      ? import.meta.env.VITE_INVENTORY_READONLY !== "true"
+      : true;
 
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState<Row>({});
@@ -102,6 +112,7 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
   const [lineCtx, setLineCtx] = useState<{ x: number; y: number; row: number } | null>(null);
   const listOffset = useRef(0);
   const itemFetchGen = useRef(0);
+  const choiceLookup = useFieldChoiceLookup(def.listPath);
 
   const loadList = useCallback(
     async (searchPrefix?: string) => {
@@ -217,8 +228,12 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
   const onAdd = useCallback(() => {
     const blank: Row = {};
     for (const h of def.headerFields) {
-      blank[h.key] = h.key === "DocDate" || h.key === "DocDueDate" || h.key === "TaxDate" || h.key === "PostDate" ? todayISO() : "";
+      blank[h.key] =
+        h.key === "DocDate" || h.key === "DocDueDate" || h.key === "TaxDate" || h.key === "PostDate" || h.key === "CountDate"
+          ? todayISO()
+          : "";
     }
+    if (def.headerFields.some((h) => h.key === "Filler")) blank.Filler = "01";
     if (def.headerFields.some((h) => h.key === "DocStatus")) blank.DocStatus = "O";
     if (def.headerFields.some((h) => h.key === "Status")) blank.Status = "P";
     if (def.headerFields.some((h) => h.key === "TreeType")) blank.TreeType = "P";
@@ -407,30 +422,6 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
     }
   }
 
-  async function applyPartnerToHeader(cardCode: string) {
-    const codeKey = def.partnerPickerFieldKey ?? "CardCode";
-    const nameKey = def.partnerNameFieldKey ?? "CardName";
-    const curKey = def.partnerCurrencyFieldKey ?? "DocCur";
-    const code = String(cardCode ?? "").trim();
-    if (!code) {
-      setForm((f) => ({ ...f, [codeKey]: "", [nameKey]: "" }));
-      return;
-    }
-    try {
-      const p = await fetchBusinessPartner(code);
-      setForm((f) => ({
-        ...f,
-        [codeKey]: String(p.CardCode ?? code),
-        [nameKey]: String(p.CardName ?? ""),
-        ...(def.headerFields.some((h) => h.key === curKey) && p.Currency != null && String(p.Currency).trim() !== ""
-          ? { [curKey]: String(p.Currency) }
-          : {}),
-      }));
-    } catch {
-      /* manual code */
-    }
-  }
-
   async function applyItemMasterToRow(rowIndex: number, itemCode: string) {
     const code = itemCode.trim();
     const gen = ++itemFetchGen.current;
@@ -568,25 +559,73 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
     const ro = !canUpdate || h.readonly || (h.pk && mode === "edit");
     const cls = "field-input field-input-grow" + (ro ? " readonly" : "");
     if (h.kind === "date") {
-      return <input className={cls} readOnly={ro} type="date" value={v} onChange={(e) => setField(h.key, e.target.value)} />;
+      return (
+        <SapDateField
+          className={"field-input-grow" + (ro ? " readonly" : "")}
+          readOnly={ro}
+          value={v}
+          onChange={(next) => setField(h.key, next)}
+          aria-label={h.label}
+        />
+      );
+    }
+    const gid = choiceLookup?.hints[h.key];
+    const opts = gid ? choiceLookup.groupMap.get(gid) : undefined;
+    if (opts?.length) {
+      const { selectValue, needsUnknownOption } = resolveSelectControlState(v, opts);
+      return (
+        <select
+          className={cls + " field-select"}
+          aria-label={h.label}
+          disabled={ro}
+          value={selectValue}
+          onChange={
+            ro
+              ? undefined
+              : (e) => {
+                  const raw = e.target.value;
+                  if (h.kind === "number") {
+                    setField(h.key, raw === "" ? "" : String(Number(raw)));
+                  } else {
+                    setField(h.key, raw);
+                  }
+                }
+          }
+        >
+          <option value="">—</option>
+          {needsUnknownOption ? (
+            <option value={selectValue}>
+              {selectValue}
+            </option>
+          ) : null}
+          {opts.map((o) => (
+            <option key={`${gid}:${String(o.value)}`} value={String(o.value)}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
     }
     return <input className={cls} readOnly={ro} type={h.kind === "number" ? "number" : "text"} value={v} onChange={(e) => setField(h.key, e.target.value)} />;
   }
 
   function renderHeaderField(h: HeaderField) {
     const partnerKey = def.partnerPickerFieldKey ?? "CardCode";
+    const partnerNameKey = def.partnerNameFieldKey ?? "CardName";
     if (partnerKey != null && h.key === partnerKey) {
-      const v = form[partnerKey] != null ? String(form[partnerKey]) : "";
+      const code = form[partnerKey] != null ? String(form[partnerKey]) : "";
+      const nm = String(form[partnerNameKey] ?? "").trim();
+      const display = nm || code;
       const ro = !canUpdate || h.readonly || (h.pk && mode === "edit");
       return (
         <SapAutocompleteInput
           wrapperClassName="sap-input-autocomplete--grow"
           inputClassName={"field-input field-input-grow" + (ro ? " readonly" : "")}
           type="text"
-          value={v}
-          readOnly={ro}
-          onChange={(e) => setField(partnerKey, e.target.value)}
-          onBlur={(e) => void applyPartnerToHeader(e.target.value)}
+          value={display}
+          readOnly
+          keepTriggerWhenReadOnly={!ro}
+          title={code ? `Card code: ${code}${nm ? ` — ${nm}` : ""}` : undefined}
           onOpenList={() => {
             if (!ro) setBpSearchOpen(true);
           }}
@@ -601,7 +640,11 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
   const footerLeftKeys = def.footerLeftKeys ?? ["SlpCode", "OwnerCode", "Comments"];
   const footerTotalsKeys = def.footerTotalsKeys ?? ["DiscSum", "VatSum", "DocTotal"];
   const footerKeySet = useMemo(() => new Set([...footerLeftKeys, ...footerTotalsKeys]), [footerLeftKeys, footerTotalsKeys]);
-  const headerForGrid = useMemo(() => def.headerFields.filter((h) => !footerKeySet.has(h.key)), [def.headerFields, footerKeySet]);
+  const sidebarKeySet = useMemo(() => new Set(def.rightSidebarFieldKeys ?? []), [def.rightSidebarFieldKeys]);
+  const headerForGrid = useMemo(
+    () => def.headerFields.filter((h) => !footerKeySet.has(h.key) && !sidebarKeySet.has(h.key)),
+    [def.headerFields, footerKeySet, sidebarKeySet],
+  );
   const leftFields = headerForGrid.filter((_, i) => i % 2 === 0);
   const rightFields = headerForGrid.filter((_, i) => i % 2 === 1);
   const docCur = form.DocCur != null ? String(form.DocCur) : "";
@@ -613,7 +656,7 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
   function renderLineCell(colKey: string, i: number, r: FormsetRow): ReactNode {
     const editable = def.lines.editKeys.includes(colKey);
     const v = String((r as unknown as Record<string, string>)[colKey] ?? "");
-    const qtyCls = colKey === "Quantity" || colKey === "PlannedQty" || colKey === "IssuedQty" ? " cell-input-qty" : "";
+    const qtyCls = colKey === "Quantity" || colKey === "PlannedQty" || colKey === "IssuedQty" || colKey === "OpenQty" || colKey === "InQty" || colKey === "OutQty" || colKey === "Difference" ? " cell-input-qty" : "";
     if (colKey === "ItemCode") {
       return (
         <SapAutocompleteInput
@@ -644,6 +687,42 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
         />
       );
     }
+    const colLabel = def.lines.columns.find((c) => c.key === colKey)?.label ?? colKey;
+    const gid = choiceLookup?.hints[colKey];
+    const opts = gid ? choiceLookup.groupMap.get(gid) : undefined;
+    if (opts?.length) {
+      const numChoice = opts.every((o) => typeof o.value === "number");
+      const { selectValue, needsUnknownOption } = resolveSelectControlState(v, opts);
+      return (
+        <select
+          className={"cell-input field-select" + qtyCls}
+          aria-label={`${colLabel} row ${i + 1}`}
+          disabled={!editable}
+          tabIndex={!editable ? -1 : 0}
+          value={selectValue}
+          onChange={
+            editable
+              ? (e) => {
+                  const rawVal = e.target.value;
+                  const next =
+                    numChoice && rawVal !== "" ? String(Number(rawVal)) : rawVal;
+                  patchFormsetRow(i, { [colKey]: next } as Partial<FormsetRow>);
+                }
+              : undefined
+          }
+        >
+          <option value="">—</option>
+          {needsUnknownOption ? (
+            <option value={selectValue}>{selectValue}</option>
+          ) : null}
+          {opts.map((o) => (
+            <option key={`${gid}:${String(o.value)}`} value={String(o.value)}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
     return (
       <input
         className={"cell-input" + qtyCls}
@@ -651,10 +730,13 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
         readOnly={!editable}
         tabIndex={!editable ? -1 : 0}
         onChange={editable ? (e) => patchFormsetRow(i, { [colKey]: e.target.value } as Partial<FormsetRow>) : undefined}
-        inputMode={colKey === "Quantity" || colKey === "Price" || colKey === "DiscPrcnt" || colKey === "PlannedQty" || colKey === "IssuedQty" ? "decimal" : undefined}
+        inputMode={colKey === "Quantity" || colKey === "Price" || colKey === "DiscPrcnt" || colKey === "PlannedQty" || colKey === "IssuedQty" || colKey === "InQty" || colKey === "OutQty" || colKey === "OpenQty" || colKey === "Difference" ? "decimal" : undefined}
       />
     );
   }
+
+  const udfKeys = def.rightSidebarFieldKeys ?? [];
+  const showUdf = udfSidebarVisible && udfKeys.length > 0;
 
   return (
     <div className={`sap-doc-root ${docRootClass}`}>
@@ -671,7 +753,11 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
           </div>
 
           {!canUpdate ? (
-            <div className="sap-readonly-banner">View only — updates are disabled (set VITE_INVENTORY_READONLY≠true to edit).</div>
+            <div className="sap-readonly-banner">
+              {def.docRootClassName === "sap-inventory-doc"
+                ? "View only — set VITE_INVENTORY_READONLY≠true to edit."
+                : "View only — updates are disabled."}
+            </div>
           ) : null}
 
           <div className="sap-header">
@@ -697,6 +783,7 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
 
           <div className="sap-window-body">
             <div className="tab-panel sap2-contents-panel active">
+              {def.hideContentsToolbar ? null : (
               <div className="contents-controls">
                 <div className="contents-controls-left">
                   <span className="field-label field-label-tight">Item/Service Type</span>
@@ -717,6 +804,7 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
                   <span className="combo-arrow">▼</span>
                 </div>
               </div>
+              )}
               <div className="grid-wrap sap2-line-grid">
                 <table className="sap-table sap2-line-table">
                   <thead>
@@ -843,7 +931,16 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
 
           <div className="ez-doc-status-strip">
             <span className="ez-doc-status-segment ez-doc-status-segment--muted">{def.title}</span>
-            <span className="ez-doc-status-segment ez-doc-status-segment--grow" />
+            <span className="ez-doc-status-segment ez-doc-status-segment--grow">
+              {err.trim() || msg.trim() ? (
+                <span
+                  className={`ez-doc-status-message ez-doc-status-message--${documentNoticeLevel(err, msg)}`}
+                  title={err.trim() ? err : msg}
+                >
+                  {err.trim() ? err : msg}
+                </span>
+              ) : null}
+            </span>
             <span className="ez-doc-status-segment">
               {mode === "new"
                 ? "Add mode"
@@ -855,11 +952,20 @@ export function SapDocumentCrud({ def, workspaceTabId }: SapDocumentCrudProps) {
             </span>
             <LiveClock />
           </div>
-          <DocumentNotificationStrip err={err} msg={msg} />
           </div>
         </div>
 
-        <SapSalesRightPanel />
+        {showUdf ? (
+          <SapDocRightSidebar
+            keys={udfKeys}
+            headerFields={def.headerFields}
+            form={form}
+            setField={setField}
+            canUpdate={canUpdate}
+            choiceLookup={choiceLookup}
+            onRequestClose={() => setUdfSidebarVisible(false)}
+          />
+        ) : null}
       </div>
 
       <LineGridContextMenu

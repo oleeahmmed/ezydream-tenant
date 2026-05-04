@@ -20,6 +20,8 @@ class GlAccountResponse(Serializer):
     FatherNum: str
     Postable: str
     LocCash: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class GlAccountPage(Serializer):
@@ -36,6 +38,8 @@ class GlAccountCreateBody(Serializer):
     FatherNum: str = field(default="")
     Postable: str = field(default="Y")
     LocCash: str = field(default="N")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class GlAccountPatchBody(Serializer):
@@ -45,6 +49,8 @@ class GlAccountPatchBody(Serializer):
     FatherNum: str | None = field(default=None)
     Postable: str | None = field(default=None)
     LocCash: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
 
 
 class ProfitCenterResponse(Serializer):
@@ -52,6 +58,8 @@ class ProfitCenterResponse(Serializer):
     PrcName: str
     DimCode: int
     Active: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class ProfitCenterPage(Serializer):
@@ -65,12 +73,16 @@ class ProfitCenterCreateBody(Serializer):
     PrcName: str
     DimCode: int
     Active: str = field(default="Y")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class ProfitCenterPatchBody(Serializer):
     PrcName: str | None = field(default=None)
     DimCode: int | None = field(default=None)
     Active: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
 
 
 class JournalEntryResponse(Serializer):
@@ -79,6 +91,8 @@ class JournalEntryResponse(Serializer):
     RefDate: date
     TransType: int
     Memo: str
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class JournalEntryPage(Serializer):
@@ -92,6 +106,8 @@ class JournalEntryCreateBody(Serializer):
     RefDate: date
     TransType: int
     Memo: str = field(default="")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class JournalEntryPatchBody(Serializer):
@@ -99,6 +115,8 @@ class JournalEntryPatchBody(Serializer):
     RefDate: date | None = field(default=None)
     TransType: int | None = field(default=None)
     Memo: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
 
 
 class JournalEntryLineResponse(Serializer):
@@ -144,6 +162,9 @@ class IncomingPaymentResponse(Serializer):
     CheckAcct: str
     DocTotal: str
     CashSum: str
+    DocStatus: str = field(default="O")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class IncomingPaymentPage(Serializer):
@@ -160,6 +181,8 @@ class IncomingPaymentCreateBody(Serializer):
     CheckAcct: str = field(default="")
     DocTotal: str = field(default="0")
     CashSum: str = field(default="0")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class IncomingPaymentPatchBody(Serializer):
@@ -171,6 +194,8 @@ class IncomingPaymentPatchBody(Serializer):
     DocTotal: str | None = field(default=None)
     CashSum: str | None = field(default=None)
     DocStatus: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
 
 
 class IncomingPaymentLineResponse(Serializer):
@@ -210,6 +235,9 @@ class OutgoingPaymentResponse(Serializer):
     CashSum: str
     TrsfrSum: str
     DocTotal: str
+    DocStatus: str = field(default="O")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class OutgoingPaymentPage(Serializer):
@@ -226,6 +254,8 @@ class OutgoingPaymentCreateBody(Serializer):
     CashSum: str = field(default="0")
     TrsfrSum: str = field(default="0")
     DocTotal: str = field(default="0")
+    U_UserFld1: str = field(default="")
+    U_UserFld2: str = field(default="")
 
 
 class OutgoingPaymentPatchBody(Serializer):
@@ -237,6 +267,8 @@ class OutgoingPaymentPatchBody(Serializer):
     TrsfrSum: str | None = field(default=None)
     DocTotal: str | None = field(default=None)
     DocStatus: str | None = field(default=None)
+    U_UserFld1: str | None = field(default=None)
+    U_UserFld2: str | None = field(default=None)
 
 
 class OutgoingPaymentLineResponse(Serializer):
