@@ -37,6 +37,10 @@ export type InvRegistryEntry = {
   lines?: LinesDef;
   /** When true: no list on open; Find loads list (optional ``q`` from primary key field); pick row loads detail and hides list. */
   formFirstListOnFind?: boolean;
+  /** Which env disables Save/Add (default: ``VITE_INVENTORY_READONLY``). */
+  readonlyEnv?: "inventory" | "finance";
+  /** After POST, apply API response row (for auto-PK headers like ``TransId``, ``DocEntry``). */
+  keepDetailAfterCreate?: boolean;
 };
 
 const API = "/api/inventory";

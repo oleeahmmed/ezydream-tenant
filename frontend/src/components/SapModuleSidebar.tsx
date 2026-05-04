@@ -1,19 +1,16 @@
 import { useMemo, useState } from "react";
 import { useWorkspace } from "../workspace/WorkspaceContext";
+import { BANKING_MENU_GROUP } from "../pages/banking/bankingMenu";
+import { BUSINESS_PARTNER_MENU_GROUP } from "../pages/business-partner/businessPartnerMenu";
+import { FINANCE_MENU_GROUP } from "../pages/finance/financeMenu";
 
-type Item = { icon: string; label: string; path?: string };
+type Item = { icon?: string; label: string; path?: string; section?: boolean };
 type Group = { id: string; icon: string; title: string; items: Item[] };
 
 const MENU: Group[] = [
-  {
-    id: "fin",
-    icon: "💰",
-    title: "Financials",
-    items: [
-      { icon: "📊", label: "Chart of Accounts" },
-      { icon: "📓", label: "Journal Entry" },
-    ],
-  },
+  FINANCE_MENU_GROUP,
+  BANKING_MENU_GROUP,
+  BUSINESS_PARTNER_MENU_GROUP,
   {
     id: "sales",
     icon: "🛒",
@@ -24,6 +21,27 @@ const MENU: Group[] = [
       { icon: "🚚", label: "Delivery (ODLN)", path: "/sales/delivery" },
       { icon: "↩️", label: "Return (ORDN)", path: "/sales/return" },
       { icon: "🧾", label: "A/R Invoice (OINV)", path: "/sales/invoice" },
+    ],
+  },
+  {
+    id: "pur",
+    icon: "📑",
+    title: "Purchase – A/P",
+    items: [
+      { icon: "📋", label: "Purchase Request (OPRQ)", path: "/purchase/purchase-request" },
+      { icon: "📦", label: "Purchase Order (OPOR)", path: "/purchase/purchase-order" },
+      { icon: "📥", label: "Goods Receipt PO (OPDN)", path: "/purchase/goods-receipt-po" },
+      { icon: "↩️", label: "Goods Return (ORPC)", path: "/purchase/vendor-return" },
+      { icon: "🧾", label: "A/P Invoice (OPCH)", path: "/purchase/ap-invoice" },
+    ],
+  },
+  {
+    id: "prd",
+    icon: "🏭",
+    title: "Production",
+    items: [
+      { icon: "📐", label: "Bill of Materials (OITT)", path: "/production/bom" },
+      { icon: "⚙️", label: "Production Order (OWOR)", path: "/production/production-order" },
     ],
   },
   {
@@ -47,7 +65,7 @@ const MENU: Group[] = [
 
 /** Left module tree — opens workspace tabs for each module. */
 export function SapModuleSidebar() {
-  const { openInventoryModule, openSalesModule, activeNavPath } = useWorkspace();
+  const { openInventoryModule, openSalesModule, openPurchaseModule, openProductionModule, openFinanceModule, activeNavPath } = useWorkspace();
   const [openId, setOpenId] = useState<string | null>("inv");
   const [q, setQ] = useState("");
 
@@ -56,7 +74,7 @@ export function SapModuleSidebar() {
     if (!needle) return MENU;
     return MENU.map((g) => ({
       ...g,
-      items: g.items.filter((it) => it.label.toLowerCase().includes(needle)),
+      items: g.items.filter((it) => (it.section ? false : it.label.toLowerCase().includes(needle))),
     })).filter((g) => g.items.length > 0);
   }, [q]);
 
@@ -99,9 +117,14 @@ export function SapModuleSidebar() {
                 <span>{g.title}</span>
               </div>
               <div className={`module-children${open ? " open" : ""}`}>
-                {g.items.map((it) => (
+                {g.items.map((it, idx) =>
+                  it.section ? (
+                    <div key={`${g.id}-sec-${idx}`} className="module-child module-child--section">
+                      {it.label}
+                    </div>
+                  ) : (
                   <div
-                    key={it.label}
+                    key={it.path ? `${g.id}-${it.path}` : `${g.id}-${it.label}-${idx}`}
                     className={`module-child${it.path && activeNavPath === it.path ? " selected" : ""}`}
                     onClick={() => {
                       if (!it.path) return;
@@ -110,8 +133,26 @@ export function SapModuleSidebar() {
                         openInventoryModule(inv, it.label, it.path);
                         return;
                       }
-                      const sal = it.path.match(/^\/sales\/([^/]+)\/?$/)?.[1];
-                      if (sal) openSalesModule(sal, it.label, it.path);
+                        const sal = it.path.match(/^\/sales\/([^/]+)\/?$/)?.[1];
+                        if (sal) {
+                          openSalesModule(sal, it.label, it.path);
+                          return;
+                        }
+                        const pur = it.path.match(/^\/purchase\/([^/]+)\/?$/)?.[1];
+                        if (pur) {
+                          openPurchaseModule(pur, it.label, it.path);
+                          return;
+                        }
+                        const prd = it.path.match(/^\/production\/([^/]+)\/?$/)?.[1];
+                        if (prd) {
+                          openProductionModule(prd, it.label, it.path);
+                          return;
+                        }
+                        const fin = it.path.match(/^\/finance\/([^/]+)\/?$/)?.[1];
+                        if (fin) {
+                          openFinanceModule(fin, it.label, it.path);
+                          return;
+                        }
                     }}
                     onKeyDown={(e) => {
                       if ((e.key === "Enter" || e.key === " ") && it.path) {
@@ -122,17 +163,36 @@ export function SapModuleSidebar() {
                           return;
                         }
                         const sal = it.path.match(/^\/sales\/([^/]+)\/?$/)?.[1];
-                        if (sal) openSalesModule(sal, it.label, it.path);
+                        if (sal) {
+                          openSalesModule(sal, it.label, it.path);
+                          return;
+                        }
+                        const pur = it.path.match(/^\/purchase\/([^/]+)\/?$/)?.[1];
+                        if (pur) {
+                          openPurchaseModule(pur, it.label, it.path);
+                          return;
+                        }
+                        const prd = it.path.match(/^\/production\/([^/]+)\/?$/)?.[1];
+                        if (prd) {
+                          openProductionModule(prd, it.label, it.path);
+                          return;
+                        }
+                        const fin = it.path.match(/^\/finance\/([^/]+)\/?$/)?.[1];
+                        if (fin) {
+                          openFinanceModule(fin, it.label, it.path);
+                          return;
+                        }
                       }
                     }}
                     role={it.path ? "button" : undefined}
                     tabIndex={it.path ? 0 : undefined}
                     style={it.path ? { cursor: "pointer" } : undefined}
                   >
-                    <span className="module-child-icon">{it.icon}</span>
+                    <span className="module-child-icon">{it.icon ?? " "}</span>
                     {it.label}
                   </div>
-                ))}
+                  ),
+                )}
               </div>
             </div>
           );

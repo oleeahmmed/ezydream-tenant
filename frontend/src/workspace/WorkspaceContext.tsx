@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 
 export const HOME_TAB_ID = "home";
 
-export type WorkspaceTabKind = "home" | "inventory" | "sales";
+export type WorkspaceTabKind = "home" | "inventory" | "sales" | "purchase" | "production" | "finance";
 
 export type WorkspaceTab = {
   id: string;
@@ -12,6 +12,9 @@ export type WorkspaceTab = {
   navPath?: string;
   moduleId?: string;
   salesModuleId?: string;
+  purchaseModuleId?: string;
+  productionModuleId?: string;
+  financeModuleId?: string;
 };
 
 export type TabActions = {
@@ -33,6 +36,9 @@ type WorkspaceContextValue = {
   /** Each menu click opens a new tab (multi-window style). */
   openInventoryModule: (moduleId: string, label: string, navPath: string) => void;
   openSalesModule: (salesModuleId: string, label: string, navPath: string) => void;
+  openPurchaseModule: (purchaseModuleId: string, label: string, navPath: string) => void;
+  openProductionModule: (productionModuleId: string, label: string, navPath: string) => void;
+  openFinanceModule: (financeModuleId: string, label: string, navPath: string) => void;
   goHome: () => void;
   registerTabActions: (tabId: string, actions: TabActions | null) => void;
   runFind: () => void;
@@ -100,6 +106,51 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setActiveTabId(id);
   }, []);
 
+  const openPurchaseModule = useCallback((purchaseModuleId: string, label: string, navPath: string) => {
+    const id = newWorkspaceTabId("pur");
+    setTabs((prev) => [
+      ...prev,
+      {
+        id,
+        label,
+        kind: "purchase" as const,
+        purchaseModuleId,
+        navPath,
+      },
+    ]);
+    setActiveTabId(id);
+  }, []);
+
+  const openProductionModule = useCallback((productionModuleId: string, label: string, navPath: string) => {
+    const id = newWorkspaceTabId("prd");
+    setTabs((prev) => [
+      ...prev,
+      {
+        id,
+        label,
+        kind: "production" as const,
+        productionModuleId,
+        navPath,
+      },
+    ]);
+    setActiveTabId(id);
+  }, []);
+
+  const openFinanceModule = useCallback((financeModuleId: string, label: string, navPath: string) => {
+    const id = newWorkspaceTabId("fin");
+    setTabs((prev) => [
+      ...prev,
+      {
+        id,
+        label,
+        kind: "finance" as const,
+        financeModuleId,
+        navPath,
+      },
+    ]);
+    setActiveTabId(id);
+  }, []);
+
   const closeTab = useCallback((id: string) => {
     if (id === HOME_TAB_ID) return;
     setTabs((prev) => {
@@ -155,6 +206,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       closeTab,
       openInventoryModule,
       openSalesModule,
+      openPurchaseModule,
+      openProductionModule,
+      openFinanceModule,
       goHome,
       registerTabActions,
       runFind,
@@ -173,6 +227,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       closeTab,
       openInventoryModule,
       openSalesModule,
+      openPurchaseModule,
+      openProductionModule,
+      openFinanceModule,
       goHome,
       registerTabActions,
       runFind,

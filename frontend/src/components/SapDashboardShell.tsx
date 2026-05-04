@@ -5,7 +5,10 @@ import { BRAND_NAME, BRAND_NAME_SHORT, BRAND_SUITE } from "../lib/brand";
 import { SapModuleSidebar } from "./SapModuleSidebar";
 import { HOME_TAB_ID, useWorkspace, type WorkspaceTab } from "../workspace/WorkspaceContext";
 import { InventoryWorkspacePane } from "../pages/inventory/InventoryModulePage";
+import { PurchaseWorkspacePane } from "../pages/purchase/PurchaseModulePage";
+import { ProductionWorkspacePane } from "../pages/production/ProductionModulePage";
 import { SalesWorkspacePane } from "../pages/sales/SalesModulePage";
+import { FinanceWorkspacePane } from "../pages/finance/FinanceModulePage";
 
 type SapDashboardShellProps = {
   userLabel: string;
@@ -192,6 +195,9 @@ export function SapDashboardShell({ userLabel }: SapDashboardShellProps) {
               {tab.kind === "home" ? <HomeWorkspacePane /> : null}
               {tab.kind === "inventory" && tab.moduleId ? <InventoryWorkspacePane moduleId={tab.moduleId} tabId={tab.id} /> : null}
               {tab.kind === "sales" && tab.salesModuleId ? <SalesWorkspacePane salesModuleId={tab.salesModuleId} tabId={tab.id} /> : null}
+              {tab.kind === "purchase" && tab.purchaseModuleId ? <PurchaseWorkspacePane moduleId={tab.purchaseModuleId} tabId={tab.id} /> : null}
+              {tab.kind === "production" && tab.productionModuleId ? <ProductionWorkspacePane moduleId={tab.productionModuleId} tabId={tab.id} /> : null}
+              {tab.kind === "finance" && tab.financeModuleId ? <FinanceWorkspacePane moduleId={tab.financeModuleId} tabId={tab.id} /> : null}
             </div>
           ))}
         </div>

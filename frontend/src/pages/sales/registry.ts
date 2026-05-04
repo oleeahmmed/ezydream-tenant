@@ -1,37 +1,16 @@
 /** Sales A/R CRUD → ``/api/sales`` (matches ``apps/sales/api/views.py``). */
 
-export type FieldKind = "text" | "number" | "date" | "datetime-local";
+import type {
+  DocumentLinesDef,
+  DocumentRegistryEntry,
+  FieldKind,
+  HeaderField,
+  ListCol,
+} from "../shared/documentTypes";
 
-export type HeaderField = {
-  key: string;
-  label: string;
-  kind: FieldKind;
-  pk?: boolean;
-  readonly?: boolean;
-};
-
-export type ListCol = { key: string; label: string };
-
-export type SalesLinesDef = {
-  listPath: (docEntry: number) => string;
-  detailPath: (docEntry: number, lineNum: number) => string;
-  postPath: string;
-  columns: ListCol[];
-  editKeys: string[];
-};
-
-export type SalesRegistryEntry = {
-  id: string;
-  title: string;
-  listPath: string;
-  detailPath: (row: Record<string, unknown>) => string;
-  pkKeys: string[];
-  listColumns: ListCol[];
-  headerFields: HeaderField[];
-  createKeys: string[];
-  patchKeys: string[];
-  lines: SalesLinesDef;
-};
+export type SalesLinesDef = DocumentLinesDef;
+export type SalesRegistryEntry = DocumentRegistryEntry;
+export type { FieldKind, HeaderField, ListCol };
 
 const API = "/api/sales";
 

@@ -1,8 +1,8 @@
 """
 Django admin for Finance (SAP B1–style headers / masters).
 
-Line tables with ``CompositePrimaryKey`` (JDT1, RCT1, VPM1, BGT1) are not registered;
-use the Bolt API under ``/api/finance/…``.
+Line tables with ``CompositePrimaryKey`` (JDT1, RCT1, VPM1, BGT1, ITL1) are not registered in Django admin
+(Django does not support composite PK models in admin). Use Bolt API ``/api/finance/…`` for those lines.
 """
 
 from django.contrib import admin
@@ -10,7 +10,27 @@ from django.utils.translation import gettext_lazy as _
 
 from apps.core.erp_admin import ErpModelAdmin
 
-from .models import OACT, OBGT, OJDT, OFPR, OPRC, ORCT, OSTC, OVPM
+from .models import (
+    AAC1,
+    OAFR,
+    OACD,
+    OADM,
+    OACT,
+    OAGS,
+    OBGT,
+    OCTD,
+    ODRN,
+    OFAV,
+    OIBT,
+    OITL,
+    OJDT,
+    OFPR,
+    OPRC,
+    ORCT,
+    OSTC,
+    OVPM,
+    OVTG,
+)
 
 
 class _FinanceErpAdmin(ErpModelAdmin):
@@ -166,3 +186,58 @@ class OBGTAdmin(_FinanceErpAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return ("AcctCode",) if obj else ()
+
+
+@admin.register(OACD)
+class OACDAdmin(admin.ModelAdmin):
+    list_display = ("AbsId", "Name")
+
+
+@admin.register(OADM)
+class OADMAdmin(admin.ModelAdmin):
+    list_display = ("AbsEntry", "CompnyName", "MainCurncy")
+
+
+@admin.register(OAGS)
+class OAGSAdmin(admin.ModelAdmin):
+    list_display = ("GroupCode", "GroupName")
+
+
+@admin.register(OCTD)
+class OCTDAdmin(admin.ModelAdmin):
+    list_display = ("CreditCard", "CardName")
+
+
+@admin.register(OVTG)
+class OVTGAdmin(admin.ModelAdmin):
+    list_display = ("Code", "Name", "Rate")
+
+
+@admin.register(OFAV)
+class OFAVAdmin(admin.ModelAdmin):
+    list_display = ("AbsEntry", "AssetCode", "CardCode")
+
+
+@admin.register(OAFR)
+class OAFRAdmin(admin.ModelAdmin):
+    list_display = ("AbsEntry", "AssetCode", "PostDate")
+
+
+@admin.register(AAC1)
+class AAC1Admin(admin.ModelAdmin):
+    list_display = ("Id", "ClassId", "AreaId")
+
+
+@admin.register(ODRN)
+class ODRNAdmin(admin.ModelAdmin):
+    list_display = ("DocEntry", "F_RefDate", "T_RefDate", "Memo")
+
+
+@admin.register(OITL)
+class OITLAdmin(admin.ModelAdmin):
+    list_display = ("ReconNum", "CardCode", "ReconDate")
+
+
+@admin.register(OIBT)
+class OIBTAdmin(admin.ModelAdmin):
+    list_display = ("DocEntry", "TrnsfrDate", "TrnsfrSum", "Memo")

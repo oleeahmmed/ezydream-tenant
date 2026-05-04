@@ -5,7 +5,7 @@ import { setTokens } from "../lib/auth";
 import { BRAND_NAME, BRAND_NAME_SHORT, BRAND_SUITE } from "../lib/brand";
 import { SapButton } from "./SapButton";
 
-/** Login window — layout and classes from ``frontend/ui/sap-dash.html`` */
+/** Login — modern card layout (styles in ``sap-theme.css``). */
 export function SapLoginScreen() {
   const nav = useNavigate();
   const [email, setEmail] = useState("");
@@ -41,16 +41,18 @@ export function SapLoginScreen() {
       <div className="login-window login-shadow">
         <div className="login-titlebar">
           <div className="login-titlebar-left">
-            <div className="login-titlebar-icon">E</div>
-            <span className="login-titlebar-text">{BRAND_NAME} — Log On</span>
+            <div className="login-titlebar-icon" aria-hidden>
+              {BRAND_NAME_SHORT.slice(0, 1)}
+            </div>
+            <span className="login-titlebar-text">{BRAND_NAME}</span>
           </div>
-          <div className="login-titlebar-btns">
-            <button type="button" className="win-btn" title="Minimize">
+          <div className="login-titlebar-btns" aria-hidden>
+            <span className="win-btn win-btn--fake" title="Minimize">
               ─
-            </button>
-            <button type="button" className="win-btn" title="Close">
+            </span>
+            <span className="win-btn win-btn--fake" title="Close">
               ✕
-            </button>
+            </span>
           </div>
         </div>
         <div className="login-body">
@@ -59,20 +61,21 @@ export function SapLoginScreen() {
             <div className="login-side-text">
               <b>{BRAND_NAME}</b>
               <br />
-              Secure sign-in
-            </div>
-            <div className="login-side-text" style={{ marginTop: 12, fontSize: 9 }}>
               {BRAND_SUITE}
-              <br />
-              © EzyDream
             </div>
+            <p className="login-side-tagline">Secure workspace access</p>
           </div>
           <div className="login-form-area">
-            <div className="login-form-title">Please enter your login information</div>
-            <form onSubmit={onSubmit}>
-              {error ? <div className="login-error">{error}</div> : null}
+            <h1 className="login-form-title">Sign in</h1>
+            <p className="login-form-sub">Use your work email and password.</p>
+            <form onSubmit={onSubmit} className="login-form">
+              {error ? (
+                <div className="login-error" role="alert">
+                  {error}
+                </div>
+              ) : null}
               <div className="form-row">
-                <label htmlFor="user-id">User ID:</label>
+                <label htmlFor="user-id">Email</label>
                 <input
                   id="user-id"
                   name="email"
@@ -81,11 +84,11 @@ export function SapLoginScreen() {
                   autoFocus
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="email@company.com"
+                  placeholder="you@company.com"
                 />
               </div>
               <div className="form-row">
-                <label htmlFor="password">Password:</label>
+                <label htmlFor="password">Password</label>
                 <input
                   id="password"
                   name="password"
@@ -93,11 +96,8 @@ export function SapLoginScreen() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
                 />
-              </div>
-              <div className="checkbox-row" style={{ marginTop: 8 }}>
-                <input id="win-account" type="checkbox" />
-                <label htmlFor="win-account">Logon with Windows Account</label>
               </div>
               <div className="form-buttons">
                 <SapButton
@@ -105,13 +105,13 @@ export function SapLoginScreen() {
                   onClick={() => {
                     setEmail("");
                     setPassword("");
+                    setError("");
                   }}
                 >
-                  Cancel
+                  Clear
                 </SapButton>
-                <SapButton type="button">Change Password</SapButton>
                 <SapButton type="submit" primary disabled={busy}>
-                  {busy ? "…" : "OK"}
+                  {busy ? "Signing in…" : "Sign in"}
                 </SapButton>
               </div>
             </form>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { FORMSET_ROWS } from "../pages/sales/shared/formset";
+import { FORMSET_ROWS } from "../pages/shared/formset";
 
 export type LineGridCtxAction =
   | "cut"

@@ -68,7 +68,11 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
   const { registerTabActions, openInventoryModule } = useWorkspace();
   const formFirst = Boolean(def.formFirstListOnFind);
   const isItemMaster = def.id === "items";
-  const canUpdate = import.meta.env.VITE_INVENTORY_READONLY === "true" ? false : true;
+  const roScope = def.readonlyEnv ?? "inventory";
+  const canUpdate =
+    roScope === "finance"
+      ? import.meta.env.VITE_FINANCE_READONLY !== "true"
+      : import.meta.env.VITE_INVENTORY_READONLY !== "true";
 
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState<Row>({});
@@ -322,10 +326,14 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
     try {
       if (mode === "new") {
         const body = buildCreateBody(def, form);
-        await apiFetch(`${def.listPath}`, { method: "POST", json: body });
+        const data = await apiFetch<Row>(`${def.listPath}`, { method: "POST", json: body });
         setMsg("Created.");
         if (!formFirst) await loadList();
-        onAdd();
+        if (def.keepDetailAfterCreate) {
+          applyRow(data, -1);
+        } else {
+          onAdd();
+        }
       } else {
         const body = buildPatchBody(def, form, orig);
         if (Object.keys(body).length === 0) {
@@ -544,7 +552,9 @@ export function InventoryDocumentCrud({ def, workspaceTabId }: { def: InvRegistr
         </div>
 
         {!canUpdate ? (
-          <div className="sap-readonly-banner">View only — updates are disabled (set VITE_INVENTORY_READONLY≠true to edit).</div>
+          <div className="sap-readonly-banner">
+            View only — updates are disabled (set {roScope === "finance" ? "VITE_FINANCE_READONLY" : "VITE_INVENTORY_READONLY"}≠true to edit).
+          </div>
         ) : null}
 
         <div className="sap-header">

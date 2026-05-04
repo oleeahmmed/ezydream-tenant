@@ -409,3 +409,194 @@ class BGT1(models.Model):
         db_table = "BGT1"
         verbose_name = _("Budget line")
         verbose_name_plural = _("Budget lines")
+
+
+# --- SAP B1–named stubs (master / banking / fixed assets) — extend fields & Bolt API as needed ---
+
+
+class OACD(models.Model):
+    """OACD — Asset class (fixed assets)."""
+
+    AbsId = models.AutoField(primary_key=True)
+    Name = models.CharField(_("Name"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "OACD"
+        verbose_name = _("Asset class")
+        verbose_name_plural = _("Asset classes (OACD)")
+
+
+class OADM(models.Model):
+    """OADM — Administration / company financial setup (single logical row per tenant)."""
+
+    AbsEntry = models.AutoField(primary_key=True)
+    MainCurncy = models.CharField(_("Main currency"), max_length=3, blank=True, default="")
+    CompnyName = models.CharField(_("Company name"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "OADM"
+        verbose_name = _("Administration setup")
+        verbose_name_plural = _("Administration setup (OADM)")
+
+
+class OAGS(models.Model):
+    """OAGS — Asset group."""
+
+    GroupCode = models.AutoField(primary_key=True)
+    GroupName = models.CharField(_("Group name"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "OAGS"
+        verbose_name = _("Asset group")
+        verbose_name_plural = _("Asset groups (OAGS)")
+
+
+class OCTD(models.Model):
+    """OCTD — Credit card type / card definition."""
+
+    CreditCard = models.CharField(_("Credit card"), max_length=40, primary_key=True)
+    CardName = models.CharField(_("Card name"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "OCTD"
+        verbose_name = _("Credit card")
+        verbose_name_plural = _("Credit cards (OCTD)")
+
+
+class OVTG(models.Model):
+    """OVTG — VAT / tax group (distinct from OSTC tax codes in this schema)."""
+
+    Code = models.CharField(_("Code"), max_length=20, primary_key=True)
+    Name = models.CharField(_("Name"), max_length=200, blank=True, default="")
+    Rate = models.DecimalField(
+        _("Rate"),
+        max_digits=9,
+        decimal_places=4,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+    )
+
+    class Meta:
+        db_table = "OVTG"
+        verbose_name = _("VAT group")
+        verbose_name_plural = _("VAT groups (OVTG)")
+
+
+class OFAV(models.Model):
+    """OFAV — Asset values (snapshot)."""
+
+    AbsEntry = models.AutoField(primary_key=True)
+    AssetCode = models.CharField(_("Asset code"), max_length=20, blank=True, default="", db_index=True)
+    CardCode = models.CharField(_("BP code"), max_length=15, blank=True, default="", db_index=True)
+
+    class Meta:
+        db_table = "OFAV"
+        verbose_name = _("Asset value")
+        verbose_name_plural = _("Asset values (OFAV)")
+
+
+class OAFR(models.Model):
+    """OAFR — Asset revaluation header."""
+
+    AbsEntry = models.AutoField(primary_key=True)
+    AssetCode = models.CharField(_("Asset code"), max_length=20, blank=True, default="", db_index=True)
+    PostDate = models.DateField(_("Posting date"), null=True, blank=True)
+
+    class Meta:
+        db_table = "OAFR"
+        verbose_name = _("Asset revaluation")
+        verbose_name_plural = _("Asset revaluations (OAFR)")
+
+
+class AAC1(models.Model):
+    """AAC1 — Asset class × depreciation area."""
+
+    Id = models.AutoField(primary_key=True)
+    ClassId = models.PositiveIntegerField(_("Asset class id"), db_index=True)
+    AreaId = models.CharField(_("Area id"), max_length=10, blank=True, default="", db_index=True)
+
+    class Meta:
+        db_table = "AAC1"
+        verbose_name = _("Asset class depreciation area")
+        verbose_name_plural = _("Asset class depreciation areas (AAC1)")
+
+
+class ODRN(models.Model):
+    """ODRN — Depreciation run."""
+
+    DocEntry = models.AutoField(primary_key=True)
+    F_RefDate = models.DateField(_("From date"), null=True, blank=True)
+    T_RefDate = models.DateField(_("To date"), null=True, blank=True)
+    Memo = models.CharField(_("Memo"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "ODRN"
+        verbose_name = _("Depreciation run")
+        verbose_name_plural = _("Depreciation runs (ODRN)")
+
+
+class OITL(models.Model):
+    """OITL — Internal reconciliation header."""
+
+    ReconNum = models.BigAutoField(primary_key=True)
+    CardCode = models.CharField(_("BP code"), max_length=15, blank=True, default="", db_index=True)
+    ReconDate = models.DateField(_("Recon date"), null=True, blank=True)
+
+    class Meta:
+        db_table = "OITL"
+        verbose_name = _("Internal reconciliation")
+        verbose_name_plural = _("Internal reconciliations (OITL)")
+
+
+class ITL1(models.Model):
+    """ITL1 — Internal reconciliation rows."""
+
+    pk = models.CompositePrimaryKey("header", "LineNum")
+    header = models.ForeignKey(
+        OITL,
+        verbose_name=_("Reconciliation"),
+        on_delete=models.CASCADE,
+        db_column="ReconNum",
+        related_name="lines",
+    )
+    LineNum = models.IntegerField(_("Line no."))
+    ShortName = models.CharField(_("Short name"), max_length=50, blank=True, default="")
+    Debit = models.DecimalField(
+        _("Debit"),
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    Credit = models.DecimalField(
+        _("Credit"),
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    class Meta:
+        db_table = "ITL1"
+        verbose_name = _("Internal reconciliation line")
+        verbose_name_plural = _("Internal reconciliation lines (ITL1)")
+
+
+class OIBT(models.Model):
+    """OIBT — Bank transfer / interbank movement header."""
+
+    DocEntry = models.BigAutoField(primary_key=True)
+    TrnsfrDate = models.DateField(_("Transfer date"), null=True, blank=True)
+    TrnsfrSum = models.DecimalField(
+        _("Amount"),
+        max_digits=19,
+        decimal_places=6,
+        default=Decimal("0"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    Memo = models.CharField(_("Memo"), max_length=200, blank=True, default="")
+
+    class Meta:
+        db_table = "OIBT"
+        verbose_name = _("Bank transfer")
+        verbose_name_plural = _("Bank transfers (OIBT)")
